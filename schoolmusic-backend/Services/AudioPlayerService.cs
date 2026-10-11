@@ -89,10 +89,11 @@ namespace schoolmusic_backend.Services
             };
         }
 
-        // ==========================
-        //  STEROWANIE GŁOŚNOŚCIĄ
-        // ==========================
+        // głośność
 
+        /// <summary>
+        /// Zwraca aktualną głośność
+        /// </summary>
         public int GetVolume()
         {
             lock (_lock)
@@ -101,6 +102,10 @@ namespace schoolmusic_backend.Services
             }
         }
 
+        /// <summary>
+        /// Ustawia głośność na podaną
+        /// </summary>
+        /// <param name="volume">Oczekiwana głośność</param>
         public void SetVolume(int volume)
         {
             lock (_lock)
@@ -115,9 +120,18 @@ namespace schoolmusic_backend.Services
             _ = BroadcastVolumeStatusAsync();
         }
 
+        /// <summary>
+        /// Dwie funkcje które mają na celu zwiększenie/zmiejszenie głośności,
+        /// tak jak guziki na telefonie, domyślnie o 5
+        /// </summary>
+        /// <param name="step">Ile dodajemy do aktualnej głośności</param>
         public void VolumeUp(int step = 5) => SetVolume(_mediaPlayer.Volume + step);
         public void VolumeDown(int step = 5) => SetVolume(_mediaPlayer.Volume - step);
 
+        /// <summary>
+        /// Wycisza lub odcisza głośnik w zależności od wcześniejszego 
+        /// stanu wyciszenia
+        /// </summary>
         public void ToggleMute()
         {
             lock (_lock)
@@ -127,6 +141,12 @@ namespace schoolmusic_backend.Services
             _ = BroadcastVolumeStatusAsync();
         }
 
+        /// <summary>
+        /// Ustawia stan wyciszenia odtwarzacza multimedialnego.
+        /// </summary>
+        /// <remarks>Operacja jest synchronizowana przez blok lock dla bezpieczeństwa wątków. Zmiana stanu
+        /// jest rozgłaszana asynchronicznie przez BroadcastVolumeStatusAsync.</remarks>
+        /// <param name="mute">true — włącza wyciszenie; false — wyłącza wyciszenie.</param>
         public void SetMute(bool mute)
         {
             lock (_lock)
@@ -136,10 +156,12 @@ namespace schoolmusic_backend.Services
             _ = BroadcastVolumeStatusAsync();
         }
 
-        // ==========================
-        //  STEROWANIE ODTWARZANIEM
-        // ==========================
+        // odtwarzanie
 
+        /// <summary>
+        /// Aktualny status odtwarzania
+        /// </summary>
+        /// <returns>Kiedyś to napisze</returns>
         public PlayerStatusDto GetStatus()
         {
             lock (_lock)
@@ -163,6 +185,12 @@ namespace schoolmusic_backend.Services
             }
         }
 
+        /// <summary>
+        /// Odtwarza podany link lub plik
+        /// </summary>
+        /// <param name="pathOrUrl">Link lub ścieżka do pliku docelowego</param>
+        /// <param name="title">Tytuł utworu</param>
+        /// <param name="artist">Nazwa wykonwacy</param>
         public async Task<ServiceResult<PlayerStatusDto>> PlayFileOrUrlAsync(string pathOrUrl, string? title = null, string? artist = null)
         {
             if (string.IsNullOrWhiteSpace(pathOrUrl))
@@ -220,6 +248,9 @@ namespace schoolmusic_backend.Services
             }
         }
 
+        /// <summary>
+        /// Zatrzymuje odtwarzanie 
+        /// </summary>
         public async Task<ServiceResult<PlayerStatusDto>> PauseAsync()
         {
             lock (_lock)
@@ -235,6 +266,9 @@ namespace schoolmusic_backend.Services
             return ServiceResult<PlayerStatusDto>.Ok(GetStatus(), "Odtwarzanie wstrzymane.");
         }
 
+        /// <summary>
+        /// Wznawia odtwarzanie
+        /// </summary>
         public async Task<ServiceResult<PlayerStatusDto>> ResumeAsync()
         {
             lock (_lock)
@@ -250,6 +284,10 @@ namespace schoolmusic_backend.Services
             return ServiceResult<PlayerStatusDto>.Ok(GetStatus(), "Wznowiono odtwarzanie.");
         }
 
+        /// <summary>
+        /// Zatrzymuje odtwarzanie, resetuje informacje o aktualnym źródle i metadanych utworu 
+        /// oraz rozsyła zaktualizowany stan odtwarzacza.
+        /// </summary>
         public async Task<ServiceResult<PlayerStatusDto>> StopAsync()
         {
             lock (_lock)
@@ -264,10 +302,12 @@ namespace schoolmusic_backend.Services
             return ServiceResult<PlayerStatusDto>.Ok(GetStatus(), "Zatrzymano odtwarzanie.");
         }
 
-        // ==========================
-        //  SIGNALR BROADCASTING
-        // ==========================
+        // websockety - SignalR
 
+        /// <summary>
+        /// Wysyła do wszystkich klientów SignalR komunikat o zmianie głośności 
+        /// zawierający aktualne wartości głośności i stanu wyciszenia.
+        /// </summary>
         private async Task BroadcastVolumeStatusAsync()
         {
             await _hubContext.Clients.All.SendAsync("VolumeChanged", new
@@ -277,11 +317,17 @@ namespace schoolmusic_backend.Services
             });
         }
 
+        /// <summary>
+        /// Wysyła do wsyztskich klientów SignalR komunikat o zmianie odtwarzania
+        /// </summary>
         private async Task BroadcastPlaybackStatusAsync()
         {
             await _hubContext.Clients.All.SendAsync("PlaybackStatusChanged", GetStatus());
         }
 
+        /// <summary>
+        /// Zwalnia zasoby zarządzane używane przez AudioPlayerService
+        /// </summary>
         public void Dispose()
         {
             _mediaPlayer?.Dispose();
