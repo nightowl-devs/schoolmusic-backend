@@ -71,6 +71,7 @@ builder.Services.AddScoped<IBreakService, BreakService>();
 builder.Services.AddScoped<IRadioStatusService, RadioStatusService>();
 builder.Services.AddScoped<IQueueService, QueueService>();
 builder.Services.AddScoped<IRankingsService, RankingsService>();
+builder.Services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
 
 
 var app = builder.Build();

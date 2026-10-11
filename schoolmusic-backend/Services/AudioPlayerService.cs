@@ -1,0 +1,291 @@
+using LibVLCSharp.Shared;
+using Microsoft.AspNetCore.SignalR;
+using schoolmusic_backend.Hubs;
+
+namespace schoolmusic_backend.Services
+{
+    public record PlayerStatusDto(
+        bool IsPlaying,
+        bool IsPaused,
+        int Volume,
+        bool IsMuted,
+        string Source, // None, LocalAudio, Url, Spotify
+        string? Title,
+        string? Artist,
+        long CurrentPositionMs,
+        long TotalDurationMs
+    );
+
+    public interface IAudioPlayerService
+    {
+        int GetVolume();
+        void SetVolume(int volume);
+        void VolumeUp(int step = 5);
+        void VolumeDown(int step = 5);
+        void ToggleMute();
+        void SetMute(bool mute);
+
+        PlayerStatusDto GetStatus();
+        Task<ServiceResult<PlayerStatusDto>> PlayFileOrUrlAsync(string pathOrUrl, string? title = null, string? artist = null);
+        Task<ServiceResult<PlayerStatusDto>> PauseAsync();
+        Task<ServiceResult<PlayerStatusDto>> ResumeAsync();
+        Task<ServiceResult<PlayerStatusDto>> StopAsync();
+    }
+
+    public class AudioPlayerService : IAudioPlayerService, IDisposable
+    {
+        private readonly LibVLCSharp.Shared.LibVLC _libVLC;
+        private readonly MediaPlayer _mediaPlayer;
+        private readonly IHubContext<QueueHub> _hubContext;
+        private readonly object _lock = new();
+
+        private string _currentSource = "None";
+        private string? _currentTitle;
+        private string? _currentArtist;
+
+        public AudioPlayerService(IHubContext<QueueHub> hubContext)
+        {
+            _hubContext = hubContext;
+
+            string[] vlcOptions =
+            {
+                "--file-caching=2000",
+                "--network-caching=2000",
+                "--clock-jitter=0",
+                "--aout=directsound"
+            };
+
+            _libVLC = new LibVLCSharp.Shared.LibVLC(enableDebugLogs: false, vlcOptions);
+            _mediaPlayer = new MediaPlayer(_libVLC)
+            {
+                Volume = 50 // Domyślna głośność 50%
+            };
+
+            // Eventy LibVLC
+            _mediaPlayer.EndReached += (s, e) =>
+            {
+                Task.Run(async () =>
+                {
+                    lock (_lock)
+                    {
+                        _currentSource = "None";
+                        _currentTitle = null;
+                        _currentArtist = null;
+                    }
+                    await BroadcastPlaybackStatusAsync();
+                });
+            };
+
+            _mediaPlayer.EncounteredError += (s, e) =>
+            {
+                Task.Run(async () =>
+                {
+                    lock (_lock)
+                    {
+                        _currentSource = "None";
+                    }
+                    await BroadcastPlaybackStatusAsync();
+                });
+            };
+        }
+
+        // ==========================
+        //  STEROWANIE GŁOŚNOŚCIĄ
+        // ==========================
+
+        public int GetVolume()
+        {
+            lock (_lock)
+            {
+                return _mediaPlayer.Volume;
+            }
+        }
+
+        public void SetVolume(int volume)
+        {
+            lock (_lock)
+            {
+                int clamped = Math.Clamp(volume, 0, 150);
+                _mediaPlayer.Volume = clamped;
+                if (clamped > 0 && _mediaPlayer.Mute)
+                {
+                    _mediaPlayer.Mute = false;
+                }
+            }
+            _ = BroadcastVolumeStatusAsync();
+        }
+
+        public void VolumeUp(int step = 5) => SetVolume(_mediaPlayer.Volume + step);
+        public void VolumeDown(int step = 5) => SetVolume(_mediaPlayer.Volume - step);
+
+        public void ToggleMute()
+        {
+            lock (_lock)
+            {
+                _mediaPlayer.Mute = !_mediaPlayer.Mute;
+            }
+            _ = BroadcastVolumeStatusAsync();
+        }
+
+        public void SetMute(bool mute)
+        {
+            lock (_lock)
+            {
+                _mediaPlayer.Mute = mute;
+            }
+            _ = BroadcastVolumeStatusAsync();
+        }
+
+        // ==========================
+        //  STEROWANIE ODTWARZANIEM
+        // ==========================
+
+        public PlayerStatusDto GetStatus()
+        {
+            lock (_lock)
+            {
+                bool isPlaying = _mediaPlayer.IsPlaying;
+                bool isPaused = _mediaPlayer.State == VLCState.Paused;
+                long time = _mediaPlayer.Time;
+                long length = _mediaPlayer.Length;
+
+                return new PlayerStatusDto(
+                    IsPlaying: isPlaying,
+                    IsPaused: isPaused,
+                    Volume: _mediaPlayer.Volume,
+                    IsMuted: _mediaPlayer.Mute,
+                    Source: _currentSource,
+                    Title: _currentTitle,
+                    Artist: _currentArtist,
+                    CurrentPositionMs: time > 0 ? time : 0,
+                    TotalDurationMs: length > 0 ? length : 0
+                );
+            }
+        }
+
+        public async Task<ServiceResult<PlayerStatusDto>> PlayFileOrUrlAsync(string pathOrUrl, string? title = null, string? artist = null)
+        {
+            if (string.IsNullOrWhiteSpace(pathOrUrl))
+            {
+                return ServiceResult<PlayerStatusDto>.BadRequest("Ścieżka do pliku lub adres URL nie mogą być puste.");
+            }
+
+            try
+            {
+                Media media;
+                string source;
+
+                if (Uri.TryCreate(pathOrUrl, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+                {
+                    // Bezpieczne pobranie strumienia do pliku na dysku
+                    // Rozwiązuje błędy 'cache_read stream error: cannot pre fill buffer' i demux w LibVLC na Windows
+                    string cacheFile = Path.Combine(Path.GetTempPath(), "schoolmusic_stream_cache.mp3");
+                    using (var httpClient = new HttpClient())
+                    {
+                        var bytes = await httpClient.GetByteArrayAsync(uri);
+                        await File.WriteAllBytesAsync(cacheFile, bytes);
+                    }
+
+                    media = new Media(_libVLC, cacheFile, FromType.FromPath);
+                    source = "Url";
+                    title ??= Path.GetFileName(uri.LocalPath);
+                }
+                else if (File.Exists(pathOrUrl))
+                {
+                    media = new Media(_libVLC, pathOrUrl, FromType.FromPath);
+                    source = "LocalAudio";
+                    title ??= Path.GetFileNameWithoutExtension(pathOrUrl);
+                }
+                else
+                {
+                    return ServiceResult<PlayerStatusDto>.NotFound($"Nie znaleziono pliku: '{pathOrUrl}' ani nie jest to poprawny URL HTTP/HTTPS.");
+                }
+
+                lock (_lock)
+                {
+                    _mediaPlayer.Stop();
+                    _currentSource = source;
+                    _currentTitle = string.IsNullOrWhiteSpace(title) ? "Nagranie radiowęzła" : title;
+                    _currentArtist = string.IsNullOrWhiteSpace(artist) ? "Szkolny radiowęzeł" : artist;
+                    _mediaPlayer.Play(media);
+                }
+
+                await BroadcastPlaybackStatusAsync();
+
+                return ServiceResult<PlayerStatusDto>.Ok(GetStatus(), "Rozpoczęto odtwarzanie.");
+            }
+            catch (Exception ex)
+            {
+                return ServiceResult<PlayerStatusDto>.BadRequest($"Błąd podczas uruchamiania odtwarzania: {ex.Message}");
+            }
+        }
+
+        public async Task<ServiceResult<PlayerStatusDto>> PauseAsync()
+        {
+            lock (_lock)
+            {
+                if (!_mediaPlayer.IsPlaying && _mediaPlayer.State != VLCState.Buffering)
+                {
+                    return ServiceResult<PlayerStatusDto>.BadRequest("Odtwarzacz nie odtwarza obecnie żadnego utworu.");
+                }
+                _mediaPlayer.SetPause(true);
+            }
+
+            await BroadcastPlaybackStatusAsync();
+            return ServiceResult<PlayerStatusDto>.Ok(GetStatus(), "Odtwarzanie wstrzymane.");
+        }
+
+        public async Task<ServiceResult<PlayerStatusDto>> ResumeAsync()
+        {
+            lock (_lock)
+            {
+                if (_mediaPlayer.State != VLCState.Paused)
+                {
+                    return ServiceResult<PlayerStatusDto>.BadRequest("Odtwarzacz nie jest obecnie wstrzymany.");
+                }
+                _mediaPlayer.SetPause(false);
+            }
+
+            await BroadcastPlaybackStatusAsync();
+            return ServiceResult<PlayerStatusDto>.Ok(GetStatus(), "Wznowiono odtwarzanie.");
+        }
+
+        public async Task<ServiceResult<PlayerStatusDto>> StopAsync()
+        {
+            lock (_lock)
+            {
+                _mediaPlayer.Stop();
+                _currentSource = "None";
+                _currentTitle = null;
+                _currentArtist = null;
+            }
+
+            await BroadcastPlaybackStatusAsync();
+            return ServiceResult<PlayerStatusDto>.Ok(GetStatus(), "Zatrzymano odtwarzanie.");
+        }
+
+        // ==========================
+        //  SIGNALR BROADCASTING
+        // ==========================
+
+        private async Task BroadcastVolumeStatusAsync()
+        {
+            await _hubContext.Clients.All.SendAsync("VolumeChanged", new
+            {
+                volume = _mediaPlayer.Volume,
+                isMuted = _mediaPlayer.Mute
+            });
+        }
+
+        private async Task BroadcastPlaybackStatusAsync()
+        {
+            await _hubContext.Clients.All.SendAsync("PlaybackStatusChanged", GetStatus());
+        }
+
+        public void Dispose()
+        {
+            _mediaPlayer?.Dispose();
+            _libVLC?.Dispose();
+        }
+    }
+}

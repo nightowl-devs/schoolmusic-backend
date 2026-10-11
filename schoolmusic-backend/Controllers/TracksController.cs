@@ -14,10 +14,16 @@ public class TracksController : ControllerBase
 {
     private readonly schoolmusicContext _context;
     private readonly IBreakService _breakService;
-    public TracksController(schoolmusicContext context, IBreakService breakService)
+    private readonly IAudioPlayerService _audioPlayerService;
+
+    public TracksController(
+        schoolmusicContext context, 
+        IBreakService breakService,
+        IAudioPlayerService audioPlayerService)
     {
         _context = context;
         _breakService = breakService;
+        _audioPlayerService = audioPlayerService;
     }
 
     [HttpGet("favourites")]
@@ -206,55 +212,14 @@ public class TracksController : ControllerBase
     }
     [HttpGet("play-song")]
     [AllowAnonymous]
-    // Testowa funkcja do odtworzenia piosenki na Twoim Windowsie
-    // url https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3
-    // url3 https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3
-    public async Task<IActionResult> PlaySong([FromQuery] string url)
+    public async Task<IActionResult> PlaySong([FromQuery] string? url)
     {
         string targetUrl = string.IsNullOrWhiteSpace(url)
                 ? "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
                 : url;
 
-        // 1. Pobieramy plik do pliku tymczasowego na dysku
-        // Rozwiązuje problem desynchronizacji zegara imem i braku seekowania
-        string tempFilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.mp3");
-
-        try
-        {
-            using (var httpClient = new HttpClient())
-            {
-                var bytes = await httpClient.GetByteArrayAsync(targetUrl);
-                await System.IO.File.WriteAllBytesAsync(tempFilePath, bytes);
-            }
-
-            // 2. Opcje dla LibVLC: zwiększony bufor i synchronizacja audio
-            string[] options = new[]
-            {
-            "--file-caching=2000",
-            "--network-caching=2000",
-            "--clock-jitter=0",
-            "--aout=directsound" // alternatywny backend audio pod Windows, zapobiegający problemom z wasapi
-        };
-
-            using var libvlc = new LibVLCSharp.Shared.LibVLC(enableDebugLogs: false, options);
-            using var media = new Media(libvlc, tempFilePath, FromType.FromPath);
-            using var mediaPlayer = new MediaPlayer(media);
-
-            mediaPlayer.Play();
-        }
-        finally
-        {
-            // Sprzątanie pliku po odtworzeniu
-            if (System.IO.File.Exists(tempFilePath))
-            {
-                try { System.IO.File.Delete(tempFilePath); } catch { }
-            }
-        }
-
-        return Ok(new { 
-            Message = "Zagrano piosenke",
-            Url = targetUrl
-        });
+        var result = await _audioPlayerService.PlayFileOrUrlAsync(targetUrl, "Testowy utwór", "SoundHelix");
+        return StatusCode(result.StatusCode, result.Success ? (object)result.Data! : new { Message = result.Message });
     }
 
     [HttpGet("testing-websockets")]
