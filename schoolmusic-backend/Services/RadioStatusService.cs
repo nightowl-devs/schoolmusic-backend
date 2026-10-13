@@ -8,6 +8,10 @@ namespace schoolmusic_backend.Services
         Task<object> GetNowPlayingAsync();
     }
 
+    /// <summary>
+    /// Udostępnia aktualny stan radiowęzła — informację czy odtwarzane jest nagranie, czy radiowęzeł jest wyciszony,
+    /// bieżący utwór oraz dane o trwającej lub nadchodzącej przerwie.
+    /// </summary>
     public class RadioStatusService : IRadioStatusService
     {
         private readonly schoolmusicContext _context;
@@ -17,6 +21,13 @@ namespace schoolmusic_backend.Services
             _context = context;
         }
 
+        /// <summary>
+        /// Zwraca aktualny stan odtwarzania radiowęzła: czy odtwarzanie trwa, czy jest wyciszone, komunikat, dane
+        /// aktualnego utworu oraz informacje o trwającej lub nadchodzącej przerwie.
+        /// </summary>
+        /// <returns>Task zawierający anonimowy obiekt z polami: isPlaying (bool), isMuted (bool), message (string), currentTrack
+        /// (obiekt z danymi utworu lub null), breakInfo (obiekt z informacjami o przerwie lub null). W przypadku dni
+        /// wyjątkowych lub wyciszonych przerw obiekt może dodatkowo zawierać pole reason z opisem powodu.</returns>
         public async Task<object> GetNowPlayingAsync()
         {
             var now = DateTime.Now;

@@ -7,7 +7,14 @@ using System.Text.Json;
 
 namespace schoolmusic_backend.Services
 {
+    /// <summary>
+    /// Reprezentuje żądanie zaproponowania utworu zawierające identyfikatory utworu i przerwy
+    /// </summary>
     public record ProposeSongDto(int? SongId, string? SpotifyId, int? BreakId);
+
+    /// <summary>
+    /// Reprezentuje żądanie oddania głosu dla elementu kolejki, opcjonalnie powiązane z utworem lub przerwą
+    /// </summary>
     public record VoteRequestDto(int? QueueItemId, int? SongId = null, int? BreakId = null);
 
     public interface IQueueService
@@ -20,6 +27,10 @@ namespace schoolmusic_backend.Services
         Task BroadcastQueueAsync(int breakId);
     }
 
+    /// <summary>
+    /// Zarządza kolejką utworów dla przerw: obsługuje zgłaszanie piosenek, moderację, głosowanie, cofanie głosów,
+    /// archiwizację przerw oraz emisję aktualizacji przez SignalR
+    /// </summary>
     public class QueueService : IQueueService
     {
         private const int SongCooldownHours = 24;
@@ -41,6 +52,12 @@ namespace schoolmusic_backend.Services
             _breakService = breakService;
         }
 
+        /// <summary>
+        /// Wysyła zaktualizowaną listę utworów dla podanego breakId do klientów w grupie SignalR
+        /// </summary>
+        /// <remarks>Pobiera zatwierdzone (lub bez statusu moderacji) elementy kolejki wraz z powiązanymi
+        /// danymi, sortuje po liczbie głosów i indeksie kolejności, a następnie emituje zdarzenie 'QueueUpdated' do
+        /// grupy 'Break_{breakId}' z liczbą utworów i rankingiem</remarks>
         public async Task BroadcastQueueAsync(int breakId)
         {
             var items = await _context.QueueItems
@@ -77,6 +94,14 @@ namespace schoolmusic_backend.Services
             });
         }
 
+        /// <summary>
+        /// Zwraca uporządkowaną kolejkę utworów dla podanej przerwy wraz z metadanymi utworów i informacją o głosach
+        /// </summary>
+        /// <remarks>Uwzględniane są tylko elementy z ModerationStatus równym 'approved' lub null.
+        /// Kolekcja jest sortowana najpierw malejąco po liczbie głosów, następnie rosnąco po OrderIndex. Pole
+        /// artistName zwraca 'Nieznany wykonawca' jeśli brak wykonawcy</remarks>
+        /// <returns>Task z ServiceResult zawierającym obiekt ze szczegółami przerwy, łączną liczbą utworów i listą elementów
+        /// kolejki; zwraca NotFound, jeśli przerwa nie istnieje.</returns>
         public async Task<ServiceResult<object>> GetQueueForBreakAsync(int breakId, int? currentUserId)
         {
             var breakEntity = await _context.Breaks.FindAsync(breakId);
@@ -121,6 +146,15 @@ namespace schoolmusic_backend.Services
             });
         }
 
+        /// <summary>
+        /// Zgłasza utwór do przerwy radiowej; wykonuje walidacje (blokada użytkownika, istnienie utworu, czarna lista,
+        /// cooldown, otwarte głosowanie) i albo automatycznie zatwierdza utwór z greenlisty, albo umieszcza propozycję
+        /// w kolejce do weryfikacji moderatorów
+        /// </summary>
+        /// <returns>ServiceResult<object> z odpowiednim statusem i danymi: Forbidden gdy użytkownik zablokowany; NotFound gdy
+        /// utwór lub przerwa nie istnieje; BadRequest dla nieprawidłowych warunków (czarna lista, cooldown, zamknięte
+        /// głosowanie, brak przerw); Conflict gdy propozycja już istnieje; Created gdy utwór z greenlisty został
+        /// zatwierdzony; Accepted gdy propozycja przesłana do moderacji</returns>
         public async Task<ServiceResult<object>> ProposeSongAsync(ProposeSongDto dto, int currentUserId)
         {
             // Sprawdzenie blokady użytkownika
@@ -332,6 +366,15 @@ namespace schoolmusic_backend.Services
             });
         }
 
+        /// <summary>
+        /// Oddaje głos dla pozycji w kolejce przerwy; w razie potrzeby może automatycznie dodać utwór z zielonej listy
+        /// </summary>
+        /// <remarks>Może dodać pozycję do kolejki z zielonej listy (z zachowaniem cooldownu), weryfikuje
+        /// blokady użytkownika i termin głosowania, zapobiega podwójnemu głosowaniu oraz emituje aktualizację
+        /// kolejki</remarks>
+        /// <returns>Task zawierający ServiceResult z odpowiednim statusem. Przy powodzeniu zwraca obiekt z polami: Message,
+        /// queueItemId, votesCount i hasVoted; w innych przypadkach zwraca Forbidden, NotFound, BadRequest lub Conflict
+        /// z opisem błędu</returns>
         public async Task<ServiceResult<object>> VoteAsync(VoteRequestDto dto, int currentUserId)
         {
             bool isBanned = await _context.BannedUsers.AnyAsync(b => b.UserId == currentUserId);
@@ -462,6 +505,12 @@ namespace schoolmusic_backend.Services
             });
         }
 
+        /// <summary>
+        /// Usuwa głos użytkownika dla wskazanego elementu kolejki, zapisuje zmiany 
+        /// oraz powiadamia klientów o aktualizacji kolejki
+        /// </summary>
+        /// <returns>ServiceResult zawierający wynik operacji: NotFound, jeśli głos nie istnieje, lub Ok z danymi (wiadomość,
+        /// queueItemId, votesCount, hasVoted) po pomyślnym usunięciu</returns>
         public async Task<ServiceResult<object>> RemoveVoteAsync(int queueItemId, int currentUserId)
         {
             var vote = await _context.Votes
@@ -491,6 +540,13 @@ namespace schoolmusic_backend.Services
             });
         }
 
+        /// <summary>
+        /// Archiwizuje przerwę o podanym identyfikatorze: zapisuje odtworzone utwory do historii, czyści kolejkę
+        /// (usuwając pozycje i powiązane głosy) oraz wysyła powiadomienie SignalR
+        /// </summary>
+        /// <returns>ServiceResult zawierający obiekt z informacjami o wyniku operacji (komunikat, breakId, breakNumber, liczby
+        /// zarchiwizowanych i wyczyszczonych utworów oraz lista zarchiwizowanych utworów) lub wynik błędu (np. NotFound
+        /// gdy przerwa nie istnieje)</returns>
         public async Task<ServiceResult<object>> ArchiveBreakAsync(int breakId)
         {
             var breakEntity = await _context.Breaks.FindAsync(breakId);
@@ -499,7 +555,7 @@ namespace schoolmusic_backend.Services
                 return ServiceResult<object>.NotFound("Nie znaleziono przerwy o podanym identyfikatorze.");
             }
 
-            // 1. Obliczamy czas trwania przerwy w sekundach
+            // Obliczamy czas trwania przerwy w sekundach
             DateTime end = breakEntity.EndsAt.HasValue ? breakEntity.EndsAt.Value : breakEntity.StartAt;
             int durationSeconds = (int)(end - breakEntity.StartAt).TotalSeconds;
             if (durationSeconds <= 0)
@@ -507,7 +563,7 @@ namespace schoolmusic_backend.Services
                 durationSeconds = 600;
             }
 
-            // 2. Pobieramy wszystkie zatwierdzone pozycje z kolejki tej przerwy
+            // Pobieramy wszystkie zatwierdzone pozycje z kolejki tej przerwy
             var approvedQueueItems = await _context.QueueItems
                 .Where(q => q.BreakId == breakId && (q.ModerationStatus == "approved" || q.ModerationStatus == null))
                 .Include(q => q.Song)
@@ -520,13 +576,13 @@ namespace schoolmusic_backend.Services
 
             if (approvedQueueItems.Count > 0)
             {
-                // 3. Używamy algorytmu BreakService, aby ustalić, które dokładnie utwory zmieściły się w czasie przerwy
+                // Używamy algorytmu BreakService, aby ustalić, które dokładnie utwory zmieściły się w czasie przerwy
                 var schedulePlan = _breakService.CalculateBreak(breakId, durationSeconds, approvedQueueItems);
                 var playedQueueItemIds = schedulePlan.Tracks.Select(t => t.QueueItemId).ToHashSet();
 
                 var playedItems = approvedQueueItems.Where(q => playedQueueItemIds.Contains(q.Id)).ToList();
 
-                // 4. Zapisujemy odtworzone utwory do tabeli history
+                // Zapisujemy odtworzone utwory do tabeli history
                 foreach (var played in playedItems)
                 {
                     var historyEntry = new History
@@ -548,7 +604,7 @@ namespace schoolmusic_backend.Services
                 }
             }
 
-            // 5. Usuwamy wszystkie QueueItems i powiązane głosy dla tej przerwy (czyścimy kolejkę)
+            // Usuwamy wszystkie QueueItems i powiązane głosy dla tej przerwy (czyścimy kolejkę)
             var allBreakQueueItems = await _context.QueueItems
                 .Where(q => q.BreakId == breakId)
                 .Include(q => q.Votes)
@@ -567,7 +623,7 @@ namespace schoolmusic_backend.Services
 
             await _context.SaveChangesAsync();
 
-            // 6. Rozsyłamy powiadomienie SignalR (kolejka jest teraz wyczyszczona)
+            // Rozsyłamy powiadomienie SignalR (kolejka jest teraz wyczyszczona)
             await BroadcastQueueAsync(breakId);
 
             return ServiceResult<object>.Ok(new

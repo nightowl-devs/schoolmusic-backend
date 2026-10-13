@@ -1,5 +1,11 @@
 namespace schoolmusic_backend.Services
 {
+    /// <summary>
+    /// Reprezentuje rezultat operacji serwisowej zawierający informację o sukcesie, kodzie statusu HTTP, opcjonalnej
+    /// wiadomości oraz ładunku danych
+    /// </summary>
+    /// <remarks>Udostępnia metody fabryczne tworzące typowe odpowiedzi HTTP (np. 200, 201, 202, 400, 401,
+    /// 403, 404, 409).</remarks>
     public class ServiceResult<T>
     {
         public bool Success { get; init; }

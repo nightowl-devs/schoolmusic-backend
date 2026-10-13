@@ -1,8 +1,10 @@
 using schoolmusic_backend.Models;
-using System.Linq.Expressions;
 
 namespace schoolmusic_backend.Services
 {
+    /// <summary>
+    /// Reprezentuje pojedyńczy utwór zaplanowany do odtworzenia
+    /// </summary>
     public record ScheduledTrackDto
     (    
         int QueueItemId,
@@ -16,6 +18,10 @@ namespace schoolmusic_backend.Services
         int PlayOrder
     );
 
+    /// <summary>
+    /// Reprezentuje wyliczony harmonogram odtwarzania
+    /// muzyki na danej przerwie
+    /// </summary>
     public record ScheduledBreakPlan(
         int BreakId,
         int TotalBreakDurationSeconds,
@@ -29,8 +35,15 @@ namespace schoolmusic_backend.Services
         ScheduledBreakPlan CalculateBreak(int breakId, int breakDurationSeconds, List<QueueItem> approvedQueue);
     }
 
+    /// <summary>
+    /// Serwis wyliczający harmonogram do odtwarzania utworów na przerwę
+    /// </summary>
     public class BreakService : IBreakService
     {
+        /// <summary>
+        /// Wylicza optymalny harmonogram odtwarzania utworów na daną przerwę,
+        /// uwzględniając liczbę głosów oraz dopasowanie czasu piosenek do czasu przerwy
+        /// </summary>
         public ScheduledBreakPlan CalculateBreak(int breakId, int breakDurationSeconds, List<QueueItem> approvedQueue)
         {
             if (breakDurationSeconds <= 0)

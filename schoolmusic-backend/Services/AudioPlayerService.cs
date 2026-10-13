@@ -4,6 +4,11 @@ using schoolmusic_backend.Hubs;
 
 namespace schoolmusic_backend.Services
 {
+    /// <summary>
+    /// Reprezentuje aktualny stan odtwarzacza multimediów.
+    /// </summary>
+    /// <remarks>Wartość Source określa typ źródła; wartości czasowe (CurrentPositionMs, TotalDurationMs) są
+    /// podane w milisekundach.</remarks>
     public record PlayerStatusDto(
         bool IsPlaying,
         bool IsPaused,
@@ -32,6 +37,10 @@ namespace schoolmusic_backend.Services
         Task<ServiceResult<PlayerStatusDto>> StopAsync();
     }
 
+    /// <summary>
+    /// Udostępnia odtwarzanie audio przy użyciu LibVLC; zarządza głośnością, kontrolą odtwarzania i rozsyłaniem statusu
+    /// do klientów SignalR.
+    /// </summary>
     public class AudioPlayerService : IAudioPlayerService, IDisposable
     {
         private readonly LibVLCSharp.Shared.LibVLC _libVLC;
@@ -124,7 +133,6 @@ namespace schoolmusic_backend.Services
         /// Dwie funkcje które mają na celu zwiększenie/zmiejszenie głośności,
         /// tak jak guziki na telefonie, domyślnie o 5
         /// </summary>
-        /// <param name="step">Ile dodajemy do aktualnej głośności</param>
         public void VolumeUp(int step = 5) => SetVolume(_mediaPlayer.Volume + step);
         public void VolumeDown(int step = 5) => SetVolume(_mediaPlayer.Volume - step);
 
@@ -146,7 +154,6 @@ namespace schoolmusic_backend.Services
         /// </summary>
         /// <remarks>Operacja jest synchronizowana przez blok lock dla bezpieczeństwa wątków. Zmiana stanu
         /// jest rozgłaszana asynchronicznie przez BroadcastVolumeStatusAsync.</remarks>
-        /// <param name="mute">true — włącza wyciszenie; false — wyłącza wyciszenie.</param>
         public void SetMute(bool mute)
         {
             lock (_lock)

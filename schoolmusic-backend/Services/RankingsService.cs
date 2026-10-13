@@ -50,6 +50,10 @@ namespace schoolmusic_backend.Services
             _context = context;
         }
 
+        /// <summary>
+        ///Zwraca datę początkową odpowiadającą zadanej przerwie lub null dla całkowitego zakresu.
+        /// </summary
+        /// <returns>Data początkowa w UTC odpowiadająca przerwie lub null dla 'all-time'/'all'.</returns>
         private static DateTime? GetStartDateForPeriod(string? period)
         {
             return period?.Trim().ToLowerInvariant() switch
@@ -63,6 +67,10 @@ namespace schoolmusic_backend.Services
             };
         }
 
+        /// <summary>
+        /// Zwraca najpopularnijszą piosenkę odpowiadającą danej przerwie lub null
+        /// </summary>
+        /// <returns>Liste obiektów TopSongRankingDto</returns>
         public async Task<List<TopSongRankingDto>> GetTopSongsAsync(string? period = "week", int limit = 10)
         {
             var startDate = GetStartDateForPeriod(period);
@@ -118,6 +126,11 @@ namespace schoolmusic_backend.Services
             return result;
         }
 
+        /// <summary>
+        /// Zwraca asynchronicznie listę najlepszych wykonawców posortowaną według liczby odtworzeń i łącznej liczby
+        /// głosów.
+        /// </summary>
+        /// <returns>Listę obiektów TopArtistRankingDto</returns>
         public async Task<List<TopArtistRankingDto>> GetTopArtistsAsync(string? period = "week", int limit = 10)
         {
             var startDate = GetStartDateForPeriod(period);
@@ -171,6 +184,11 @@ namespace schoolmusic_backend.Services
             return result;
         }
 
+        /// <summary>
+        /// Asynchronicznie pobiera listę ostatnich wpisów historii odtwarzania posortowaną malejąco według czasu
+        /// odtworzenia.
+        /// </summary>
+        /// <returns>Task zawierający listę PlaybackHistoryDto</returns>
         public async Task<List<PlaybackHistoryDto>> GetRecentHistoryAsync(int limit = 20, int offset = 0)
         {
             var historyItems = await _context.Histories
