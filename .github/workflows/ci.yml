@@ -7,48 +7,51 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-  jobs:
-    build-and-test:
-      name: Build & Run Unit Tests .NET 10
-      runs_on: ubuntu-latest
+jobs:
+  build-and-test:
+    name: Build & Run Unit Tests .NET 10
+    runs-on: ubuntu-latest
 
-      steps:
-        - name: Checkout repository
-          uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-        - name: Setup .NET 10 SDK
-          uses: actions/setup-dotnet@v4
-          with:
-            dotnet-version: '10.0.x'
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
         
-        - name: Cache NuGet packages
-          uses: actions/cach@v4
-          with:
-            path: ~/.nuget/packages
-            key: ${{ runner.os }}--nuget-${{ hashFiles('**/*.csproj') }}
-            restore-keys: |
-              ${{ runner.os }}--nuget-
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}--nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}--nuget-
         
-        - name: Restore dependencies
-          run: dotnet restore schoolmusic-backend.sln --configuration Release --no-restore
+      - name: Restore dependencies
+        run: dotnet restore schoolmusic-backend.sln
+      
+      - name: Build solution
+        run: dotnet build schoolmusic-backend.sln --configuration Release --no-restore
 
-        - name: Run xUnit test with code coverage
-          run: dotnet test schoolmusic-backend.sln --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+      - name: Run xUnit test with code coverage
+        run: dotnet test schoolmusic-backend.sln --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
 
-    docker-verify:
-      name: Verify Docker & Compose Build
-      needs: build-and-test
-      runs-on: ubuntu-latest
+  docker-verify:
+    name: Verify Docker & Compose Build
+    needs: build-and-test
+    runs-on: ubuntu-latest
 
-      steps:
-        - name: Checkout repository
-          uses: action/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-        - name: Set up Docker Buildx
-          uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
         
-        - name: Build Docker Image
-          uses: docker build -t schoolmusic-backend:ci .
+      - name: Build Docker Image
+        run: docker build -t schoolmusic-backend:ci .
 
-        - name: Validate docker-compose configuration
-          run: docker compose config
+      - name: Validate docker-compose configuration
+        run: docker compose config
