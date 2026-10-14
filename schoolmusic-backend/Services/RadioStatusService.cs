@@ -64,23 +64,75 @@ namespace schoolmusic_backend.Services
             var currentBreak = todayBreaks.FirstOrDefault(b => now >= b.StartAt && now <= b.EndsAt);
             var nextBreak = todayBreaks.Where(b => b.StartAt > now).OrderBy(b => b.StartAt).FirstOrDefault();
 
-            // Sprawdzenie wyciszonej przerwy (np. apel, egzamin) na podstawie daty i numeru przerwy
-            var activeExceptionBreak = currentBreak != null
-                ? await _context.ExceptionBreaks
-                    .FirstOrDefaultAsync(eb => eb.BreakDate == today && eb.BreakNumber == currentBreak.Entity.BreakNumber && !eb.MusicEnabled)
-                : null;
+            // Sprawdzenie czy muzyka jest włączona na bieżącej przerwie wg hierarchii priorytetów
+            bool isMusicAllowed = true;
+            string? muteReason = null;
+
+            if (currentBreak != null)
+            {
+                sbyte weekday = (sbyte)now.DayOfWeek;
+                if (weekday == 0) weekday = 7;
+
+                var exceptionBreak = await _context.ExceptionBreaks
+                    .FirstOrDefaultAsync(eb => eb.BreakDate == today && eb.BreakNumber == currentBreak.Entity.BreakNumber);
+
+                if (exceptionBreak != null)
+                {
+                    isMusicAllowed = exceptionBreak.MusicEnabled;
+                    if (!isMusicAllowed)
+                    {
+                        muteReason = exceptionBreak.Description ?? "Wyjątek kalendarzowy";
+                    }
+                }
+                else
+                {
+                    var weeklyBreak = await _context.WeeklyBreakSettings
+                        .FirstOrDefaultAsync(wb => wb.Weekday == weekday && wb.BreakNumber == currentBreak.Entity.BreakNumber);
+
+                    if (weeklyBreak != null)
+                    {
+                        isMusicAllowed = weeklyBreak.MusicEnabled;
+                        if (!isMusicAllowed)
+                        {
+                            muteReason = "Wyłączona w harmonogramie tygodniowym dla tej przerwy";
+                        }
+                    }
+                    else
+                    {
+                        var weeklyDay = await _context.WeeklySchedules
+                            .FirstOrDefaultAsync(ws => ws.Weekday == weekday);
+
+                        if (weeklyDay != null)
+                        {
+                            isMusicAllowed = weeklyDay.MusicEnabled;
+                            if (!isMusicAllowed)
+                            {
+                                muteReason = "Wyłączona w harmonogramie tygodniowym dla tego dnia";
+                            }
+                        }
+                        else
+                        {
+                            isMusicAllowed = currentBreak.Entity.MusicEnabled;
+                            if (!isMusicAllowed)
+                            {
+                                muteReason = "Wyłączona w konfiguracji przerwy";
+                            }
+                        }
+                    }
+                }
+            }
 
             // Jeśli trwa przerwa
             if (currentBreak != null)
             {
-                if (activeExceptionBreak != null)
+                if (!isMusicAllowed)
                 {
                     return new
                     {
                         isPlaying = false,
                         isMuted = true,
-                        reason = activeExceptionBreak.Description,
-                        message = $"Trwa przerwa nr {currentBreak.Entity.BreakNumber}, ale muzyka jest wyciszona ({activeExceptionBreak.Description}).",
+                        reason = muteReason,
+                        message = $"Trwa przerwa nr {currentBreak.Entity.BreakNumber}, ale muzyka jest wyłączona ({muteReason}).",
                         currentTrack = (object?)null,
                         breakInfo = new
                         {
