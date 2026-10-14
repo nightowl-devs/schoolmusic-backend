@@ -10,6 +10,11 @@ using schoolmusic_backend.Hubs;
 
 namespace schoolmusic_backend.Controllers
 {
+    /// <summary>
+    /// Kontroler API obsługujący zadania moderacyjne: przeglądanie i zarządzanie propozycjami piosenek, zatwierdzanie i
+    /// odrzucanie propozycji oraz banowanie i odbanowywanie użytkowników
+    /// </summary>
+    /// <remarks>Dostęp tylko dla ról 'mod', 'admin' i 'head_admin'</remarks>
     [Route("/api/[controller]")]
     [ApiController]
     [Authorize(Roles ="mod,admin,head_admin")]
@@ -25,6 +30,9 @@ namespace schoolmusic_backend.Controllers
             _redis = redis;
             _hubContext = hubContext;
         }
+        /// <summary>
+        /// Reprezentuje propozycję utworu przesłaną przez użytkownika.
+        /// </summary>
         public record SongProposalDto(
             string Id,
             int SongId,
@@ -72,7 +80,13 @@ namespace schoolmusic_backend.Controllers
         }
 
 
-
+        /// <summary>
+        /// Zatwierdza propozycję piosenki o podanym identyfikatorze, dodaje ją do zielonej listy i kolejki oraz
+        /// powiadamia podłączonych klientów przez SignalR
+        /// </summary>
+        /// <returns>Zwraca IActionResult: 401 Unauthorized gdy brak autoryzacji moderatora; 404 NotFound gdy nie znaleziono
+        /// propozycji lub powiązanej piosenki; 200 Ok zawierające informacje o zatwierdzeniu, identyfikatorze elementu
+        /// kolejki i identyfikatorze przerwy</returns>
         [HttpPost("approve/{proposalId}")]
         public async Task<IActionResult> ApproveSong(string proposalId)
         {
@@ -245,6 +259,11 @@ namespace schoolmusic_backend.Controllers
             });
         }
 
+        /// <summary>
+        /// Odrzuca propozycję utworu o podanym identyfikatorze; opcjonalnie dodaje utwór do czarnej listy
+        /// </summary>
+        /// <returns>Zwraca IActionResult z odpowiednim kodem HTTP i obiektem zawierającym komunikat, identyfikator propozycji,
+        /// tytuł utworu oraz flagę wskazującą, czy utwór został dodany do czarnej listy.</returns>
         [HttpPost("deny/{proposalId}")]
         public async Task<IActionResult> DenySong(string proposalId, [FromQuery] bool addToBlacklist = false)
         {
@@ -337,8 +356,10 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Zwraca wszystkich uczniów z tabeli BannedUsers
+        /// Znajduje wszystkich zbanowanych użytkowników
         /// </summary>
+        /// <returns>Zwraca IActionResult z odpowiednią wiadomością oraz 
+        /// listą zbanowanych użytkowników </returns>
         [HttpGet("banned")]
         public async Task<IActionResult> GetAllBannedUsers()
         {
@@ -361,6 +382,11 @@ namespace schoolmusic_backend.Controllers
             });
         }
 
+        /// <summary>
+        /// Banuje użytkownika o podanym identyfikatorze, tworząc wpis w tabeli BannedUsers i zapisując zmiany
+        /// </summary>
+        /// <returns>IActionResult: 200 OK gdy ban został dodany; 409 Conflict gdy użytkownik już jest zbanowany; 401
+        /// Unauthorized gdy brak prawidłowego identyfikatora moderatora</returns>
         [HttpPost("ban/{userId:int}")]
         public async Task<IActionResult> BanUser(int userId)
         {
@@ -395,6 +421,11 @@ namespace schoolmusic_backend.Controllers
             });
         }
 
+        /// <summary>
+        /// Odbanowuje użytkownika powiązanego z podanym identyfikatorem zakazu
+        /// </summary>
+        /// <returns>IActionResult zwracający 200 (Ok) z komunikatem po pomyślnym odbanowaniu; 400 (BadRequest) gdy użytkownik
+        /// nie jest zbanowany; 401 (Unauthorized) gdy brak lub nieprawidłowy identyfikator moderatora</returns>
         [HttpPost("unaban/{banId:int}")]
         public async Task<IActionResult> UnbanUser(int banId)
         {

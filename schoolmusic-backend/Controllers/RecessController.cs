@@ -16,6 +16,9 @@ public class RecessController : ControllerBase
         _context = context;
     }
 
+    /// <summary>
+    /// Reprezentuje odpowiedź zawierającą dane dotyczące przerwy
+    /// </summary>
     public record BreakResponseDto(
         int Id, 
         int BreakNumber, 
@@ -25,8 +28,17 @@ public class RecessController : ControllerBase
         bool IsMuted = false,
         string? MuteReason = null
     );
+    /// <summary>
+    /// Dane transferu do aktualizacji wpisu harmonogramu przerwy
+    /// </summary>
     public record UpdateBreakScheduleItemDto(int Id, TimeOnly StartAt, TimeOnly EndsAt, TimeOnly? VoteEnds = null);
+    /// <summary>
+    /// Dane potrzebne do utworzenia dnia wyjątkowego
+    /// </summary>
     public record CreateExceptionDayDto(DateTime StartAt, DateTime? EndsAt, string? Description);
+    /// <summary>
+    /// Dane potrzebne do utworzenia przerwy wyjątkowej
+    /// </summary>
     public record CreateExceptionBreakDto(DateTime StartsAt, DateTime? EndsAt, string? Description);
 
     /// <summary>
@@ -41,7 +53,7 @@ public class RecessController : ControllerBase
         var dayStart = targetDate.ToDateTime(TimeOnly.MinValue);
         var dayEnd = targetDate.ToDateTime(TimeOnly.MaxValue);
 
-        // check if its exception dat
+        // check if its exception date
         var exceptionDay = await _context.ExceptionDays
             .Where(e => e.StartAt <= dayEnd && (e.EndsAt == null || e.EndsAt.Value >= dayStart))
             .FirstOrDefaultAsync();
@@ -230,7 +242,7 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> CreateExceptionDay([FromBody] CreateExceptionDayDto dto)
     {
         int userId = HttpContext.GetCurrentUserId() ?? 0;
-        if (!await IsAdmin(userId))
+        if (!await _context.IsAdminAsync(userId))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
@@ -271,7 +283,7 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> DeleteExceptionDay(int id)
     {
         int userId = HttpContext.GetCurrentUserId() ?? 0;
-        if (!await IsAdmin(userId))
+        if (!await _context.IsAdminAsync(userId))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
@@ -318,7 +330,7 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> CreateExceptionBreak([FromBody] CreateExceptionBreakDto dto)
     {
         int userId = HttpContext.GetCurrentUserId() ?? 0;
-        if (!await IsAdmin(userId))
+        if (!await _context.IsAdminAsync(userId))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
@@ -359,7 +371,7 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> DeleteExceptionBreak(int id)
     {
         int userId = HttpContext.GetCurrentUserId() ?? 0;
-        if (!await IsAdmin(userId))
+        if (!await _context.IsAdminAsync(userId))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
@@ -388,7 +400,7 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> UpdateDefaultBreaks([FromBody] List<UpdateBreakScheduleItemDto> items)
     {
         int userId = HttpContext.GetCurrentUserId() ?? 0;
-        if (!await IsAdmin(userId))
+        if (!await _context.IsAdminAsync(userId))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new
             {
@@ -423,15 +435,5 @@ public class RecessController : ControllerBase
         {
             Message = "Rozkład przerw w bazie został zaktualizowany"
         });
-    }
-
-    private async Task<bool> IsAdmin(int userId)
-    {
-        var user = await _context.Users.FindAsync(userId);
-        if (user == null)
-        {
-            return false;
-        }
-        return user.RankId >= 3;
     }
 }

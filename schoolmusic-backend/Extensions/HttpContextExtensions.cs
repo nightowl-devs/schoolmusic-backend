@@ -1,4 +1,6 @@
+using schoolmusic_backend.Models;
 using System.IdentityModel.Tokens.Jwt;
+using System.Runtime.CompilerServices;
 using System.Security.Claims;
 
 namespace schoolmusic_backend.Extensions;

@@ -68,7 +68,7 @@ public class UsersController : ControllerBase
             new Claim(JwtRegisteredClaimNames.Sub, exisitingUser.Id.ToString()), // ! Subject 
             new Claim(JwtRegisteredClaimNames.UniqueName, exisitingUser.UserLogin), // ! nazwa użytkownika
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()), // ! JWT ID, czyli identyfikator samego tokenu
-            new Claim(ClaimTypes.Role, exisitingUser.Rank?.Rank1 ?? "user")
+            new Claim(ClaimTypes.Role, exisitingUser.Rank?.Rank1 ?? "user") // ranga usera
         };
 
         var token = new JwtSecurityToken(

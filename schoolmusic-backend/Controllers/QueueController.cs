@@ -7,6 +7,11 @@ using schoolmusic_backend.Services;
 
 namespace schoolmusic_backend.Controllers
 {
+    /// <summary>
+    /// Kontroler API obsługujący kolejkę utworów: proponowanie piosenek, głosowanie i cofanie głosów, pobieranie listy
+    /// utworów dla przerwy, generowanie harmonogramu przerwy, pobieranie aktualnie odtwarzanego utworu oraz
+    /// archiwizacja przerw.
+    /// </summary>
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
@@ -29,13 +34,20 @@ namespace schoolmusic_backend.Controllers
             _context = context;
         }
 
+        /// <summary>
+        /// Zwraca akcję HTTP z kodem statusu pobranym z obiektu ServiceResult; zawiera Data przy powodzeniu lub obiekt
+        /// z polem Message przy niepowodzeniu
+        /// </summary>
+        /// <remarks>Treść odpowiedzi zależy od wartości pola Success w przekazanym obiekcie.</remarks>
+        /// <returns>IActionResult z kodem statusu result.StatusCode; jeśli result.Success jest true, treść odpowiedzi to
+        /// result.Data, w przeciwnym razie obiekt zawierający pole Message</returns>
         private IActionResult FromResult<T>(ServiceResult<T> result)
         {
             return StatusCode(result.StatusCode, result.Success ? result.Data : new { Message = result.Message });
         }
 
         /// <summary>
-        /// Pobiera listę utworów zgłoszonych na daną przerwę (Live ranking).
+        /// Pobiera listę utworów zgłoszonych na daną przerwę (Live ranking)
         /// </summary>
         [HttpGet("break/{breakId:int}")]
         [AllowAnonymous]
@@ -47,7 +59,7 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Zwraca ułożony przez algorytm harmonogram utworów na daną przerwę (z uwzględnieniem czasu jej trwania).
+        /// Zwraca ułożony przez algorytm harmonogram utworów na daną przerwę (z uwzględnieniem czasu jej trwania)
         /// </summary>
         [HttpGet("break/{breakId:int}/plan")]
         [AllowAnonymous]
@@ -79,7 +91,7 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Zwraca utwór aktualnie odtwarzany na radiowęźle (dla ekranu TV i paska odtwarzania w aplikacji).
+        /// Zwraca utwór aktualnie odtwarzany na radiowęźle (dla ekranu TV i paska odtwarzania w aplikacji)
         /// </summary>
         [HttpGet("now-playing")]
         [AllowAnonymous]
@@ -90,7 +102,7 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Zgłasza piosenkę przez zalogowanego ucznia na najbliższą (lub wybraną) przerwę.
+        /// Zgłasza piosenkę przez zalogowanego ucznia na najbliższą (lub wybraną) przerwę
         /// </summary>
         [HttpPost("propose")]
         public async Task<IActionResult> ProposeSong([FromBody] ProposeSongDto dto)
@@ -106,7 +118,7 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Oddaje głos na utwór w kolejce (lub dodaje utwór z greenlisty i oddaje na niego głos).
+        /// Oddaje głos na utwór w kolejce (lub dodaje utwór z greenlisty i oddaje na niego głos)
         /// </summary>
         [HttpPost("vote")]
         public async Task<IActionResult> Vote([FromBody] VoteRequestDto dto)
@@ -122,7 +134,7 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Cofa oddany wcześniej głos na utwór w kolejce.
+        /// Cofa oddany wcześniej głos na utwór w kolejce
         /// </summary>
         [HttpDelete("vote/{queueItemId:int}")]
         public async Task<IActionResult> RemoveVote(int queueItemId)
@@ -138,8 +150,8 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Zamyka przerwę, przenosi utwory, które zagrały, do tabeli historii i czyści kolejkę.
-        /// Dostęp tylko dla moderatorów i administratorów.
+        /// Zamyka przerwę, przenosi utwory, które zagrały, do tabeli historii i czyści kolejkę
+        /// Dostęp tylko dla moderatorów i administratorów
         /// </summary>
         [HttpPost("break/{breakId:int}/archive")]
         [Authorize(Roles = "mod,admin,head_admin")]

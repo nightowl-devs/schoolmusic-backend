@@ -4,6 +4,10 @@ using schoolmusic_backend.Services;
 
 namespace schoolmusic_backend.Controllers
 {
+    /// <summary>
+    /// Kontroler API udostępniający końcówki do pobierania rankingów najpopularniejszych utworów i wykonawców oraz
+    /// historii ostatnich odtworzeń
+    /// </summary>
     [Route("api/[controller]")]
     [ApiController]
     [AllowAnonymous]

@@ -7,6 +7,10 @@ using schoolmusic_backend.Extensions;
 using static System.Net.WebRequestMethods;
 using schoolmusic_backend.Services;
 
+/// <summary>
+/// Kontroler API obsługujący operacje związane z utworami: pobieranie i zarządzanie ulubionymi, odtwarzanie plików/URL
+/// oraz obliczanie planu przerwy dla kolejki utworów
+/// </summary>
 [Route("api/[controller]")]
 [ApiController]
 [Authorize]
@@ -26,6 +30,11 @@ public class TracksController : ControllerBase
         _audioPlayerService = audioPlayerService;
     }
 
+    /// <summary>
+    /// Zwraca listę ulubionych utworów zalogowanego użytkownika
+    /// </summary>
+    /// <returns>Task<IActionResult> — 200 OK zawierające obiekt z polem Message i kolekcją Tracks (Id, SpotifyId, Title, Cover,
+    /// DurationMs); 401 Unauthorized gdy token JWT jest nieprawidłowy</returns>
     [HttpGet("favourites")]
     public async Task<IActionResult> GetAllFavourites()
     {
@@ -61,7 +70,6 @@ public class TracksController : ControllerBase
     /// <summary>
     /// Dodawanie po id w bazie danych
     /// </summary>
-    /// <param name="id">Id piosenki w bazie danych</param>
     [HttpPost("{id:int}/favourites")]
     public async Task<IActionResult> AddToFavourites(int id)
     {
@@ -80,7 +88,7 @@ public class TracksController : ControllerBase
 
         if (song == null)
         {
-            // ! tutaj trzeba zrobić podłączenie do spotify web api a później dodać do bazy danych
+            /// TODO ! tutaj trzeba zrobić podłączenie do spotify web api a później dodać do bazy danych
             // await Songs.Add(song);
             // await _context.SaveChangesAsync();
             // na razie NotFound
@@ -117,6 +125,11 @@ public class TracksController : ControllerBase
 
     }
 
+    /// <summary>
+    /// Dodaje utwór o podanym identyfikatorze Spotify do listy ulubionych bieżącego użytkownika
+    /// </summary>
+    /// <returns>200 OK po pomyślnym dodaniu; 401 Unauthorized przy brakującym lub niepoprawnym tokenie; 404 NotFound gdy nie
+    /// znaleziono użytkownika lub utworu; 409 Conflict gdy utwór już znajduje się w ulubionych</returns>
     [HttpPost("spotify/{spotifyId}/favourites")]
     public async Task<IActionResult> AddToFavouritesSpotifyId(string spotifyId)
     {
@@ -166,6 +179,11 @@ public class TracksController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Usuwa piosenkę z listy ulubionych zalogowanego użytkownika
+    /// </summary>
+    /// <returns>Zwraca IActionResult: 200 (OK) po pomyślnym usunięciu; 401 (Unauthorized) jeśli brak lub niepoprawny token; 404
+    /// (NotFound) jeśli użytkownik, piosenka lub powiązanie piosenki z ulubionymi nie istnieje</returns>
     [HttpDelete("favourites/{id}")]
     public async Task<IActionResult> DeleteFromFavourites(int id)
     {
@@ -210,6 +228,12 @@ public class TracksController : ControllerBase
         });
 
     }
+
+    /// <summary>
+    /// Odtwarza utwór z podanego adresu URL lub z domyślnego źródła
+    /// </summary>
+    /// <returns>HTTP StatusCode określający wynik operacji; przy powodzeniu zawiera dane utworu, w przeciwnym razie obiekt z
+    /// polem Message opisującym błąd</returns>
     [HttpGet("play-song")]
     [AllowAnonymous]
     public async Task<IActionResult> PlaySong([FromQuery] string? url)
@@ -222,6 +246,12 @@ public class TracksController : ControllerBase
         return StatusCode(result.StatusCode, result.Success ? (object)result.Data! : new { Message = result.Message });
     }
 
+    /// <summary>
+    /// Zwraca plan przerwy obliczony na podstawie zatwierdzonej kolejki utworów i czasu trwania przerwy dla podanego
+    /// identyfikatora
+    /// </summary>
+    /// <returns>IActionResult zawierający: 200 OK z obiektem planu przerwy; 200 OK z komunikatem gdy przerwa lub utwory nie
+    /// zostały znalezione; 400 Bad Request (Problem) gdy czas trwania przerwy jest niepoprawny</returns>
     [HttpGet("testing-websockets")]
     [AllowAnonymous]
     public async Task<IActionResult> getRanks(int breakId)

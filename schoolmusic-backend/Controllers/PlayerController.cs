@@ -14,6 +14,10 @@ namespace schoolmusic_backend.Controllers
         string? Artist
     );
 
+    /// <summary>
+    /// Kontroler API do zarządzania odtwarzaczem audio. Udostępnia akcje do pobierania statusu, sterowania głośnością,
+    /// wyciszania, pauzowania, wznawiania, zatrzymywania, odtwarzania plików lub URL oraz przesyłania plików.
+    /// </summary>
     [Route("api/[controller]")]
     [ApiController]
     [Authorize]
@@ -141,9 +145,9 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Całkowicie zatrzymuje odtwarzanie
+        /// Zatrzymuje odtwarzanie przy użyciu serwisu odtwarzacza
         /// </summary>
-        /// <returns></returns>
+        /// <returns>IActionResult zawierający wynik asynchronicznej operacji zatrzymania</returns>
         [HttpPost("stop")]
         [Authorize(Roles ="mod,admin,head_admin")]
         public async Task<IActionResult> Stop()
@@ -153,12 +157,11 @@ namespace schoolmusic_backend.Controllers
         }
 
         /// <summary>
-        /// Umożliwia wgranie pliku i natychmiastowe odtworzenie go
+        /// Przesyła plik audio, zapisuje go na serwerze i uruchamia jego odtwarzanie
         /// </summary>
-        /// <param name="file">Plik</param>
-        /// <param name="title">Tytuł utworu</param>
-        /// <param name="artist">Nazwa wykonawcy</param>
-        /// <returns></returns>
+        /// <remarks>Maksymalny rozmiar żądania: 100 MB. Pliki zapisywane są w katalogu 'recordings'</remarks>
+        /// <returns>IActionResult: 400 Bad Request przy braku pliku lub niedozwolonym formacie; w przeciwnym razie wynik
+        /// działania odtwarzacza.</returns>
         [HttpPost("upload-and-play")]
         [RequestSizeLimit(100_000_000)] // limit 100MB
         [Authorize(Roles ="mod,admin,head_admin")]
