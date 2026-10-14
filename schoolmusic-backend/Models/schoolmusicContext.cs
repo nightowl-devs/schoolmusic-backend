@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
+using Microting.EntityFrameworkCore.MySql.Scaffolding.Internal;
 
 namespace schoolmusic_backend.Models;
 
@@ -23,6 +24,8 @@ public partial class schoolmusicContext : DbContext
 
     public virtual DbSet<Break> Breaks { get; set; }
 
+    public virtual DbSet<BreakTemplate> BreakTemplates { get; set; }
+
     public virtual DbSet<DefaultSong> DefaultSongs { get; set; }
 
     public virtual DbSet<ExceptionBreak> ExceptionBreaks { get; set; }
@@ -32,6 +35,8 @@ public partial class schoolmusicContext : DbContext
     public virtual DbSet<History> Histories { get; set; }
 
     public virtual DbSet<Moderator> Moderators { get; set; }
+
+    public virtual DbSet<PlaybackState> PlaybackStates { get; set; }
 
     public virtual DbSet<QueueItem> QueueItems { get; set; }
 
@@ -43,11 +48,21 @@ public partial class schoolmusicContext : DbContext
 
     public virtual DbSet<SongGreenlist> SongGreenlists { get; set; }
 
+    public virtual DbSet<SongVoteCount> SongVoteCounts { get; set; }
+
     public virtual DbSet<SpecialEvent> SpecialEvents { get; set; }
 
     public virtual DbSet<User> Users { get; set; }
 
     public virtual DbSet<Vote> Votes { get; set; }
+
+    public virtual DbSet<WeeklyBreakSetting> WeeklyBreakSettings { get; set; }
+
+    public virtual DbSet<WeeklySchedule> WeeklySchedules { get; set; }
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
+        => optionsBuilder.UseMySql("server=localhost;port=3306;database=schoolmusic;user=root;allowpublickeyretrieval=True;sslmode=None", Microsoft.EntityFrameworkCore.ServerVersion.Parse("10.4.32-mariadb"));
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,507 +74,208 @@ public partial class schoolmusicContext : DbContext
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("artists");
+            entity.HasIndex(e => e.Name, "idx_artists_name").HasAnnotation("MySql:IndexPrefixLength", new[] { 191 });
 
-            entity.HasIndex(e => e.SpotifyArtistId, "uniq_spotify_artist").IsUnique();
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.Name)
-                .HasColumnType("text")
-                .HasColumnName("name");
-            entity.Property(e => e.SpotifyArtistId).HasColumnName("spotify_artist_id");
+            entity.Property(e => e.Source).HasDefaultValueSql("'spotify'");
         });
 
         modelBuilder.Entity<ArtistBlacklist>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("artist_blacklist");
-
-            entity.HasIndex(e => e.ArtistId, "artist_id").IsUnique();
-
-            entity.HasIndex(e => e.ModeratorId, "moderator_id");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.ArtistId)
-                .HasColumnType("int(11)")
-                .HasColumnName("artist_id");
-            entity.Property(e => e.ModeratorId)
-                .HasColumnType("int(11)")
-                .HasColumnName("moderator_id");
-
             entity.HasOne(d => d.Artist).WithOne(p => p.ArtistBlacklist)
-                .HasForeignKey<ArtistBlacklist>(d => d.ArtistId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("artist_blacklist_ibfk_1");
+                .HasConstraintName("fk_artist_black_artist");
 
             entity.HasOne(d => d.Moderator).WithMany(p => p.ArtistBlacklists)
-                .HasForeignKey(d => d.ModeratorId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("artist_blacklist_ibfk_2");
+                .HasConstraintName("fk_artist_black_mod");
         });
 
         modelBuilder.Entity<BannedUser>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("banned_users");
-
-            entity.HasIndex(e => e.ModeratorId, "moderator_id");
-
-            entity.HasIndex(e => e.UserId, "user_id");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.BannedAt)
-                .HasDefaultValueSql("current_timestamp()")
-                .HasColumnType("timestamp")
-                .HasColumnName("banned_at");
-            entity.Property(e => e.ModeratorId)
-                .HasColumnType("int(11)")
-                .HasColumnName("moderator_id");
-            entity.Property(e => e.Reason)
-                .HasColumnType("text")
-                .HasColumnName("reason");
-            entity.Property(e => e.UserId)
-                .HasColumnType("int(11)")
-                .HasColumnName("user_id");
+            entity.Property(e => e.BannedAt).HasDefaultValueSql("current_timestamp()");
 
             entity.HasOne(d => d.Moderator).WithMany(p => p.BannedUsers)
-                .HasForeignKey(d => d.ModeratorId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("banned_users_ibfk_2");
+                .HasConstraintName("fk_banned_mod");
 
             entity.HasOne(d => d.User).WithMany(p => p.BannedUsers)
-                .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("banned_users_ibfk_1");
+                .HasConstraintName("fk_banned_user");
         });
 
         modelBuilder.Entity<Break>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("break");
+            entity.Property(e => e.MusicEnabled).HasDefaultValueSql("'1'");
+        });
 
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.BreakNumber)
-                .HasColumnType("int(11)")
-                .HasColumnName("break_number");
-            entity.Property(e => e.EndsAt)
-                .HasColumnType("timestamp")
-                .HasColumnName("ends_at");
-            entity.Property(e => e.StartAt)
-                .HasDefaultValueSql("current_timestamp()")
-                .HasColumnType("timestamp")
-                .HasColumnName("start_at");
-            entity.Property(e => e.VoteEnds)
-                .HasColumnType("timestamp")
-                .HasColumnName("vote_ends");
+        modelBuilder.Entity<BreakTemplate>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
         });
 
         modelBuilder.Entity<DefaultSong>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("default_songs");
-
-            entity.HasIndex(e => e.SongId, "song_id");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.SongId)
-                .HasColumnType("int(11)")
-                .HasColumnName("song_id");
-
             entity.HasOne(d => d.Song).WithMany(p => p.DefaultSongs)
-                .HasForeignKey(d => d.SongId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("default_songs_ibfk_1");
+                .HasConstraintName("fk_default_song");
         });
 
         modelBuilder.Entity<ExceptionBreak>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
-
-            entity.ToTable("exception_break");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.Description)
-                .HasColumnType("text")
-                .HasColumnName("description");
-            entity.Property(e => e.EndsAt)
-                .HasColumnType("datetime")
-                .HasColumnName("ends_at");
-            entity.Property(e => e.StartsAt)
-                .HasColumnType("datetime")
-                .HasColumnName("starts_at");
         });
 
         modelBuilder.Entity<ExceptionDay>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
-
-            entity.ToTable("exception_day");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.Description)
-                .HasColumnType("text")
-                .HasColumnName("description");
-            entity.Property(e => e.EndsAt)
-                .HasColumnType("timestamp")
-                .HasColumnName("ends_at");
-            entity.Property(e => e.StartAt)
-                .HasDefaultValueSql("current_timestamp()")
-                .HasColumnType("timestamp")
-                .HasColumnName("start_at");
         });
 
         modelBuilder.Entity<History>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("history");
-
-            entity.HasIndex(e => e.BreakId, "break_id");
-
-            entity.HasIndex(e => e.SongId, "song_id");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.BreakId)
-                .HasColumnType("int(11)")
-                .HasColumnName("break_id");
-            entity.Property(e => e.PlayedAt)
-                .HasDefaultValueSql("current_timestamp()")
-                .HasColumnType("timestamp")
-                .HasColumnName("played_at");
-            entity.Property(e => e.SongId)
-                .HasColumnType("int(11)")
-                .HasColumnName("song_id");
-            entity.Property(e => e.Votes)
-                .HasColumnType("int(11)")
-                .HasColumnName("votes");
+            entity.Property(e => e.PlayedAt).HasDefaultValueSql("current_timestamp()");
 
             entity.HasOne(d => d.Break).WithMany(p => p.Histories)
-                .HasForeignKey(d => d.BreakId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("history_ibfk_2");
+                .HasConstraintName("fk_history_break");
 
             entity.HasOne(d => d.Song).WithMany(p => p.Histories)
-                .HasForeignKey(d => d.SongId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("history_ibfk_1");
+                .HasConstraintName("fk_history_song");
         });
 
         modelBuilder.Entity<Moderator>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("moderators");
-
-            entity.HasIndex(e => e.UserId, "uniq_mod_user").IsUnique();
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.ArtistsBanned)
-                .HasColumnType("int(11)")
-                .HasColumnName("artists_banned");
-            entity.Property(e => e.SongsApproved)
-                .HasColumnType("int(11)")
-                .HasColumnName("songs_approved");
-            entity.Property(e => e.SongsBaned)
-                .HasColumnType("int(11)")
-                .HasColumnName("songs_baned");
-            entity.Property(e => e.UserId)
-                .HasColumnType("int(11)")
-                .HasColumnName("user_id");
-
             entity.HasOne(d => d.User).WithOne(p => p.Moderator)
-                .HasForeignKey<Moderator>(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("moderators_ibfk_1");
+                .HasConstraintName("fk_moderators_user");
+        });
+
+        modelBuilder.Entity<PlaybackState>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity.Property(e => e.Id).HasDefaultValueSql("'1'");
+            entity.Property(e => e.UpdatedAt)
+                .ValueGeneratedOnAddOrUpdate()
+                .HasDefaultValueSql("current_timestamp()");
+
+            entity.HasOne(d => d.CurrentQueueItem).WithMany(p => p.PlaybackStates)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("fk_playback_queue");
         });
 
         modelBuilder.Entity<QueueItem>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("queue_items");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("current_timestamp()");
+            entity.Property(e => e.Status).HasDefaultValueSql("'queued'");
 
-            entity.HasIndex(e => e.BlacklistId, "blacklist_id");
-
-            entity.HasIndex(e => e.BreakId, "break_id");
-
-            entity.HasIndex(e => e.GreenlistId, "greenlist_id");
-
-            entity.HasIndex(e => e.ModeratorId, "moderator_id");
-
-            entity.HasIndex(e => e.SongId, "song_id");
-
-            entity.HasIndex(e => new { e.BreakId, e.OrderIndex }, "uniq_break_order").IsUnique();
-
-            entity.HasIndex(e => new { e.BreakId, e.SongId }, "uniq_break_song").IsUnique();
-
-            entity.HasIndex(e => e.UserId, "user_id");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.BlacklistId)
-                .HasColumnType("int(11)")
-                .HasColumnName("blacklist_id");
-            entity.Property(e => e.BreakId)
-                .HasColumnType("int(11)")
-                .HasColumnName("break_id");
-            entity.Property(e => e.GreenlistId)
-                .HasColumnType("int(11)")
-                .HasColumnName("greenlist_id");
-            entity.Property(e => e.ModerationStatus)
-                .HasColumnType("enum('approved','rejected')")
-                .HasColumnName("moderation_status");
-            entity.Property(e => e.ModeratorId)
-                .HasColumnType("int(11)")
-                .HasColumnName("moderator_id");
-            entity.Property(e => e.OrderIndex)
-                .HasColumnType("int(11)")
-                .HasColumnName("order_index");
-            entity.Property(e => e.SongId)
-                .HasColumnType("int(11)")
-                .HasColumnName("song_id");
-            entity.Property(e => e.UserId)
-                .HasColumnType("int(11)")
-                .HasColumnName("user_id");
-
-            entity.HasOne(d => d.Blacklist).WithMany(p => p.QueueItems)
-                .HasForeignKey(d => d.BlacklistId)
-                .HasConstraintName("queue_items_ibfk_5");
+            entity.HasOne(d => d.Blacklist).WithMany(p => p.QueueItems).HasConstraintName("fk_queue_black");
 
             entity.HasOne(d => d.Break).WithMany(p => p.QueueItems)
-                .HasForeignKey(d => d.BreakId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("queue_items_ibfk_1");
+                .HasConstraintName("fk_queue_break");
 
-            entity.HasOne(d => d.Greenlist).WithMany(p => p.QueueItems)
-                .HasForeignKey(d => d.GreenlistId)
-                .HasConstraintName("queue_items_ibfk_4");
+            entity.HasOne(d => d.Greenlist).WithMany(p => p.QueueItems).HasConstraintName("fk_queue_green");
 
-            entity.HasOne(d => d.Moderator).WithMany(p => p.QueueItems)
-                .HasForeignKey(d => d.ModeratorId)
-                .HasConstraintName("queue_items_ibfk_6");
+            entity.HasOne(d => d.Moderator).WithMany(p => p.QueueItems).HasConstraintName("fk_queue_mod");
 
             entity.HasOne(d => d.Song).WithMany(p => p.QueueItems)
-                .HasForeignKey(d => d.SongId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("queue_items_ibfk_2");
+                .HasConstraintName("fk_queue_song");
 
-            entity.HasOne(d => d.User).WithMany(p => p.QueueItems)
-                .HasForeignKey(d => d.UserId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("queue_items_ibfk_3");
+            entity.HasOne(d => d.User).WithMany(p => p.QueueItems).HasConstraintName("fk_queue_user");
         });
 
         modelBuilder.Entity<Rank>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
-
-            entity.ToTable("ranks");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.Rank1)
-                .HasMaxLength(255)
-                .HasColumnName("rank");
         });
 
         modelBuilder.Entity<Song>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("songs");
-
-            entity.HasIndex(e => e.ArtistId, "artist_id");
-
-            entity.HasIndex(e => e.SpotifyId, "uniq_spotify_song").IsUnique();
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.ArtistId)
-                .HasColumnType("int(11)")
-                .HasColumnName("artist_id");
-            entity.Property(e => e.Cover)
-                .HasColumnType("text")
-                .HasColumnName("cover");
-            entity.Property(e => e.DurationMs)
-                .HasColumnType("int(11)")
-                .HasColumnName("duration_ms");
-            entity.Property(e => e.SpotifyId).HasColumnName("spotify_id");
-            entity.Property(e => e.Title)
-                .HasColumnType("text")
-                .HasColumnName("title");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("current_timestamp()");
+            entity.Property(e => e.IsActive).HasDefaultValueSql("'1'");
+            entity.Property(e => e.Source).HasDefaultValueSql("'spotify'");
 
             entity.HasOne(d => d.Artist).WithMany(p => p.Songs)
-                .HasForeignKey(d => d.ArtistId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("songs_ibfk_1");
+                .HasConstraintName("fk_songs_artist");
         });
 
         modelBuilder.Entity<SongBlacklist>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("song_blacklist");
-
-            entity.HasIndex(e => e.ArtistId, "artist_id");
-
-            entity.HasIndex(e => e.ModId, "mod_id");
-
-            entity.HasIndex(e => e.SongId, "song_id").IsUnique();
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.ArtistId)
-                .HasColumnType("int(11)")
-                .HasColumnName("artist_id");
-            entity.Property(e => e.ModId)
-                .HasColumnType("int(11)")
-                .HasColumnName("mod_id");
-            entity.Property(e => e.SongId)
-                .HasColumnType("int(11)")
-                .HasColumnName("song_id");
-
             entity.HasOne(d => d.Artist).WithMany(p => p.SongBlacklists)
-                .HasForeignKey(d => d.ArtistId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("song_blacklist_ibfk_2");
+                .HasConstraintName("fk_black_artist");
 
             entity.HasOne(d => d.Mod).WithMany(p => p.SongBlacklists)
-                .HasForeignKey(d => d.ModId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("song_blacklist_ibfk_3");
+                .HasConstraintName("fk_black_mod");
 
             entity.HasOne(d => d.Song).WithOne(p => p.SongBlacklist)
-                .HasForeignKey<SongBlacklist>(d => d.SongId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("song_blacklist_ibfk_1");
+                .HasConstraintName("fk_black_song");
         });
 
         modelBuilder.Entity<SongGreenlist>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("song_greenlist");
-
-            entity.HasIndex(e => e.ArtistId, "artist_id");
-
-            entity.HasIndex(e => e.ModId, "mod_id");
-
-            entity.HasIndex(e => e.SongId, "song_id").IsUnique();
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.ArtistId)
-                .HasColumnType("int(11)")
-                .HasColumnName("artist_id");
-            entity.Property(e => e.ModId)
-                .HasColumnType("int(11)")
-                .HasColumnName("mod_id");
-            entity.Property(e => e.SongId)
-                .HasColumnType("int(11)")
-                .HasColumnName("song_id");
-
             entity.HasOne(d => d.Artist).WithMany(p => p.SongGreenlists)
-                .HasForeignKey(d => d.ArtistId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("song_greenlist_ibfk_2");
+                .HasConstraintName("fk_green_artist");
 
             entity.HasOne(d => d.Mod).WithMany(p => p.SongGreenlists)
-                .HasForeignKey(d => d.ModId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("song_greenlist_ibfk_3");
+                .HasConstraintName("fk_green_mod");
 
             entity.HasOne(d => d.Song).WithOne(p => p.SongGreenlist)
-                .HasForeignKey<SongGreenlist>(d => d.SongId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("song_greenlist_ibfk_1");
+                .HasConstraintName("fk_green_song");
+        });
+
+        modelBuilder.Entity<SongVoteCount>(entity =>
+        {
+            entity.ToView("song_vote_counts");
         });
 
         modelBuilder.Entity<SpecialEvent>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("special_event");
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.EventStatus)
-                .HasColumnType("enum('pending','playing','done')")
-                .HasColumnName("event_status");
-            entity.Property(e => e.FileUrl)
-                .HasColumnType("text")
-                .HasColumnName("file_url");
-            entity.Property(e => e.StartsAt)
-                .HasDefaultValueSql("current_timestamp()")
-                .HasColumnType("timestamp")
-                .HasColumnName("starts_at");
-            entity.Property(e => e.Title)
-                .HasMaxLength(255)
-                .HasColumnName("title");
+            entity.Property(e => e.EventStatus).HasDefaultValueSql("'pending'");
+            entity.Property(e => e.StartsAt).HasDefaultValueSql("current_timestamp()");
         });
 
         modelBuilder.Entity<User>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("users");
-
-            entity.HasIndex(e => e.RankId, "rank_id");
-
-            entity.HasIndex(e => e.UserLogin, "user_login").IsUnique();
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.CreatedAt)
-                .HasDefaultValueSql("current_timestamp()")
-                .HasColumnType("datetime")
-                .HasColumnName("created_at");
-            entity.Property(e => e.PasswordChangedAt)
-                .HasDefaultValueSql("current_timestamp()")
-                .HasColumnType("datetime")
-                .HasColumnName("password_changed_at");
-            entity.Property(e => e.RankId)
-                .HasDefaultValueSql("'1'")
-                .HasColumnType("int(11)")
-                .HasColumnName("rank_id");
-            entity.Property(e => e.UserLogin).HasColumnName("user_login");
-            entity.Property(e => e.UserPassword)
-                .HasMaxLength(255)
-                .HasColumnName("user_password");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("current_timestamp()");
+            entity.Property(e => e.PasswordChangedAt).HasDefaultValueSql("current_timestamp()");
+            entity.Property(e => e.RankId).HasDefaultValueSql("'1'");
 
             entity.HasOne(d => d.Rank).WithMany(p => p.Users)
-                .HasForeignKey(d => d.RankId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("users_ibfk_1");
+                .HasConstraintName("fk_users_rank");
 
             entity.HasMany(d => d.Songs).WithMany(p => p.Users)
                 .UsingEntity<Dictionary<string, object>>(
@@ -567,18 +283,18 @@ public partial class schoolmusicContext : DbContext
                     r => r.HasOne<Song>().WithMany()
                         .HasForeignKey("SongId")
                         .OnDelete(DeleteBehavior.ClientSetNull)
-                        .HasConstraintName("user_favourites_ibfk_2"),
+                        .HasConstraintName("fk_fav_song"),
                     l => l.HasOne<User>().WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.ClientSetNull)
-                        .HasConstraintName("user_favourites_ibfk_1"),
+                        .HasConstraintName("fk_fav_user"),
                     j =>
                     {
                         j.HasKey("UserId", "SongId")
                             .HasName("PRIMARY")
                             .HasAnnotation("MySql:IndexPrefixLength", new[] { 0, 0 });
                         j.ToTable("user_favourites");
-                        j.HasIndex(new[] { "SongId" }, "song_id");
+                        j.HasIndex(new[] { "SongId" }, "idx_fav_song");
                         j.IndexerProperty<int>("UserId")
                             .HasColumnType("int(11)")
                             .HasColumnName("user_id");
@@ -592,31 +308,39 @@ public partial class schoolmusicContext : DbContext
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.ToTable("votes");
-
-            entity.HasIndex(e => e.QueueItemId, "queue_item_id");
-
-            entity.HasIndex(e => new { e.UserId, e.QueueItemId }, "user_id").IsUnique();
-
-            entity.Property(e => e.Id)
-                .HasColumnType("int(11)")
-                .HasColumnName("id");
-            entity.Property(e => e.QueueItemId)
-                .HasColumnType("int(11)")
-                .HasColumnName("queue_item_id");
-            entity.Property(e => e.UserId)
-                .HasColumnType("int(11)")
-                .HasColumnName("user_id");
+            entity.Property(e => e.VotedAt).HasDefaultValueSql("current_timestamp()");
 
             entity.HasOne(d => d.QueueItem).WithMany(p => p.Votes)
-                .HasForeignKey(d => d.QueueItemId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("votes_ibfk_2");
+                .HasConstraintName("fk_votes_queue");
 
             entity.HasOne(d => d.User).WithMany(p => p.Votes)
-                .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("votes_ibfk_1");
+                .HasConstraintName("fk_votes_user");
+        });
+
+        modelBuilder.Entity<WeeklyBreakSetting>(entity =>
+        {
+            entity.HasKey(e => new { e.Weekday, e.BreakNumber })
+                .HasName("PRIMARY")
+                .HasAnnotation("MySql:IndexPrefixLength", new[] { 0, 0 });
+
+            entity.HasOne(d => d.BreakNumberNavigation).WithMany(p => p.WeeklyBreakSettings)
+                .HasPrincipalKey(p => p.BreakNumber)
+                .HasForeignKey(d => d.BreakNumber)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_wbs_break");
+
+            entity.HasOne(d => d.WeekdayNavigation).WithMany(p => p.WeeklyBreakSettings)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("fk_wbs_weekday");
+        });
+
+        modelBuilder.Entity<WeeklySchedule>(entity =>
+        {
+            entity.HasKey(e => e.Weekday).HasName("PRIMARY");
+
+            entity.Property(e => e.MusicEnabled).HasDefaultValueSql("'1'");
         });
 
         OnModelCreatingPartial(modelBuilder);

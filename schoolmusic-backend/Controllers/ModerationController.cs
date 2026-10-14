@@ -135,7 +135,7 @@ namespace schoolmusic_backend.Controllers
                 {
                     UserId = modUserId,
                     SongsApproved = 0,
-                    SongsBaned = 0,
+                    SongsBanned = 0,
                     ArtistsBanned = 0
                 };
                 _context.Moderators.Add(moderator);
@@ -212,7 +212,7 @@ namespace schoolmusic_backend.Controllers
 
             await db.ListRemoveAsync(pendingKey, matchingRedisValue, 1);
 
-            moderator.SongsApproved = (moderator.SongsApproved ?? 0) + 1;
+            moderator.SongsApproved += 1;
             await _context.SaveChangesAsync();
 
             // Powiadamiamy wszystkich podłączonych do tej przerwy o nowej zatwierdzonej piosence
@@ -317,7 +317,7 @@ namespace schoolmusic_backend.Controllers
                     {
                         UserId = modUserId,
                         SongsApproved = 0,
-                        SongsBaned = 0,
+                        SongsBanned = 0,
                         ArtistsBanned = 0
                     };
                     _context.Moderators.Add(moderator);
@@ -337,7 +337,7 @@ namespace schoolmusic_backend.Controllers
                             ArtistId = song.ArtistId,
                             ModId = moderator.Id
                         });
-                        moderator.SongsBaned = (moderator.SongsBaned ?? 0) + 1;
+                        moderator.SongsBanned += 1;
                         await _context.SaveChangesAsync();
                         blacklisted = true;
                     }

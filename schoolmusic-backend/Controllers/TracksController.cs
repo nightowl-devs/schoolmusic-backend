@@ -260,9 +260,9 @@ public class TracksController : ControllerBase
         if (breakEntity == null) return Ok(new { Message = "Nie znaleziono przerwy o podanym id" });
 
         int breakDurationSeconds = 0;
-        if(breakEntity.EndsAt.HasValue && breakEntity.EndsAt.Value > breakEntity.StartAt)
+        if (breakEntity.EndsAt > breakEntity.StartAt)
         {
-            breakDurationSeconds = (int)(breakEntity.EndsAt.Value - breakEntity.StartAt).TotalSeconds;
+            breakDurationSeconds = (int)(breakEntity.EndsAt - breakEntity.StartAt).TotalSeconds;
         }
         else
         {

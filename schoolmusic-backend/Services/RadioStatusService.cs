@@ -31,10 +31,11 @@ namespace schoolmusic_backend.Services
         public async Task<object> GetNowPlayingAsync()
         {
             var now = DateTime.Now;
+            var today = DateOnly.FromDateTime(now);
 
             // Sprawdzenie dnia wyjątkowego (np. żałoba, dzień bez muzyki)
             var activeExceptionDay = await _context.ExceptionDays
-                .Where(e => e.StartAt <= now && (e.EndsAt == null || e.EndsAt.Value >= now))
+                .Where(e => e.StartDate <= today && today <= e.EndDate)
                 .FirstOrDefaultAsync();
 
             if (activeExceptionDay != null)
@@ -50,26 +51,24 @@ namespace schoolmusic_backend.Services
                 };
             }
 
-            // Sprawdzenie wyciszonej przerwy (np. apel, egzamin)
-            var activeExceptionBreak = await _context.ExceptionBreaks
-                .Where(eb => eb.StartsAt <= now && (eb.EndsAt == null || eb.EndsAt.Value >= now))
-                .FirstOrDefaultAsync();
-
             // Pobranie harmonogramu przerw na dziś
-            var today = DateOnly.FromDateTime(now);
-            var allBreaks = await _context.Breaks.OrderBy(b => b.BreakNumber ?? b.Id).ToListAsync();
+            var allBreaks = await _context.Breaks.OrderBy(b => b.BreakNumber).ToListAsync();
 
             var todayBreaks = allBreaks.Select(b => new
             {
                 Entity = b,
                 StartAt = today.ToDateTime(TimeOnly.FromDateTime(b.StartAt)),
-                EndsAt = b.EndsAt.HasValue
-                    ? today.ToDateTime(TimeOnly.FromDateTime(b.EndsAt.Value))
-                    : today.ToDateTime(TimeOnly.FromDateTime(b.StartAt))
+                EndsAt = today.ToDateTime(TimeOnly.FromDateTime(b.EndsAt))
             }).ToList();
 
             var currentBreak = todayBreaks.FirstOrDefault(b => now >= b.StartAt && now <= b.EndsAt);
             var nextBreak = todayBreaks.Where(b => b.StartAt > now).OrderBy(b => b.StartAt).FirstOrDefault();
+
+            // Sprawdzenie wyciszonej przerwy (np. apel, egzamin) na podstawie daty i numeru przerwy
+            var activeExceptionBreak = currentBreak != null
+                ? await _context.ExceptionBreaks
+                    .FirstOrDefaultAsync(eb => eb.BreakDate == today && eb.BreakNumber == currentBreak.Entity.BreakNumber && !eb.MusicEnabled)
+                : null;
 
             // Jeśli trwa przerwa
             if (currentBreak != null)

@@ -71,7 +71,7 @@ namespace schoolmusic_backend.Controllers
                 return NotFound(new { Message = "Nie znaleziono przerwy o podanym identyfikatorze." });
             }
 
-            DateTime end = breakEntity.EndsAt.HasValue ? breakEntity.EndsAt.Value : breakEntity.StartAt;
+            DateTime end = breakEntity.EndsAt;
             int durationSeconds = (int)(end - breakEntity.StartAt).TotalSeconds;
 
             if (durationSeconds <= 0)

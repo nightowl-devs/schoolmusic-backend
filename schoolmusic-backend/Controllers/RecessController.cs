@@ -35,11 +35,11 @@ public class RecessController : ControllerBase
     /// <summary>
     /// Dane potrzebne do utworzenia dnia wyjątkowego
     /// </summary>
-    public record CreateExceptionDayDto(DateTime StartAt, DateTime? EndsAt, string? Description);
+    public record CreateExceptionDayDto(DateOnly StartDate, DateOnly? EndDate, string? DayType, string? Description);
     /// <summary>
     /// Dane potrzebne do utworzenia przerwy wyjątkowej
     /// </summary>
-    public record CreateExceptionBreakDto(DateTime StartsAt, DateTime? EndsAt, string? Description);
+    public record CreateExceptionBreakDto(DateOnly BreakDate, sbyte BreakNumber, bool MusicEnabled = false, string? Description = null);
 
     /// <summary>
     /// Pobiera harmonogram przerw na dany dzień z informacją 
@@ -50,45 +50,41 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> GetBreaks([FromQuery] DateOnly? date)
     {
         var targetDate = date ?? DateOnly.FromDateTime(DateTime.Today);
-        var dayStart = targetDate.ToDateTime(TimeOnly.MinValue);
-        var dayEnd = targetDate.ToDateTime(TimeOnly.MaxValue);
 
         // check if its exception date
         var exceptionDay = await _context.ExceptionDays
-            .Where(e => e.StartAt <= dayEnd && (e.EndsAt == null || e.EndsAt.Value >= dayStart))
+            .Where(e => e.StartDate <= targetDate && targetDate <= e.EndDate)
             .FirstOrDefaultAsync();
 
         bool isExceptionDay = exceptionDay != null;
 
         // get all exception breaks
         var exceptionBreaks = await _context.ExceptionBreaks
-            .Where(eb => eb.StartsAt <= dayEnd && (eb.EndsAt == null || eb.EndsAt.Value >= dayStart))
+            .Where(eb => eb.BreakDate == targetDate)
             .ToListAsync();
 
         var defaultBreaks = await _context.Breaks
-            .OrderBy(b => b.BreakNumber ?? b.Id)
+            .OrderBy(b => b.BreakNumber)
             .ToListAsync();
 
         var breakList = defaultBreaks.Select(b =>
         {
             var startAt = targetDate.ToDateTime(TimeOnly.FromDateTime(b.StartAt));
-            var endsAt = b.EndsAt.HasValue
-                ? targetDate.ToDateTime(TimeOnly.FromDateTime(b.EndsAt.Value))
-                : targetDate.ToDateTime(TimeOnly.FromDateTime(b.StartAt));
+            var endsAt = targetDate.ToDateTime(TimeOnly.FromDateTime(b.EndsAt));
 
             // check if this break is exception break
             var matchingExceptionBreak = exceptionBreaks.FirstOrDefault(eb =>
-                eb.StartsAt <= endsAt && (eb.EndsAt == null || eb.EndsAt.Value >= startAt)
+                eb.BreakNumber == b.BreakNumber
             );
 
-            bool isMuted = isExceptionDay || matchingExceptionBreak != null;
+            bool isMuted = isExceptionDay || (matchingExceptionBreak != null && !matchingExceptionBreak.MusicEnabled);
             string? muteReason = isExceptionDay 
                 ? exceptionDay?.Description 
                 : matchingExceptionBreak?.Description;
 
             return new BreakResponseDto(
                 Id: b.Id,
-                BreakNumber: b.BreakNumber ?? b.Id,
+                BreakNumber: b.BreakNumber,
                 StartAt: startAt,
                 EndsAt: endsAt,
                 VoteEnds: b.VoteEnds.HasValue ? targetDate.ToDateTime(TimeOnly.FromDateTime(b.VoteEnds.Value)) : null,
@@ -121,10 +117,11 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> GetCurrentStatus()
     {
         var now = DateTime.Now;
+        var today = DateOnly.FromDateTime(now);
 
         // check if today is exception day
         var activeExceptionDay = await _context.ExceptionDays
-            .Where(e => e.StartAt <= now && (e.EndsAt == null || e.EndsAt.Value >= now))
+            .Where(e => e.StartDate <= today && today <= e.EndDate)
             .FirstOrDefaultAsync();
 
         if (activeExceptionDay != null)
@@ -143,37 +140,40 @@ public class RecessController : ControllerBase
             });
         }
 
-        // check if its exception break
-        var activeExceptionBreak = await _context.ExceptionBreaks
-            .Where(eb => eb.StartsAt <= now && (eb.EndsAt == null || eb.EndsAt.Value >= now))
-            .FirstOrDefaultAsync();
+        // check exception breaks for today
+        var todayExceptionBreaks = await _context.ExceptionBreaks
+            .Where(eb => eb.BreakDate == today)
+            .ToListAsync();
 
-        // todays date
-        var today = DateOnly.FromDateTime(now);
         var defaultBreaks = await _context.Breaks
-            .OrderBy(b => b.BreakNumber ?? b.Id)
+            .OrderBy(b => b.BreakNumber)
             .ToListAsync();
 
         var todayBreaks = defaultBreaks.Select(b =>
         {
             var startAt = today.ToDateTime(TimeOnly.FromDateTime(b.StartAt));
-            var endsAt = b.EndsAt.HasValue
-                ? today.ToDateTime(TimeOnly.FromDateTime(b.EndsAt.Value))
-                : today.ToDateTime(TimeOnly.FromDateTime(b.StartAt));
+            var endsAt = today.ToDateTime(TimeOnly.FromDateTime(b.EndsAt));
+
+            var matchingExceptionBreak = todayExceptionBreaks.FirstOrDefault(eb => eb.BreakNumber == b.BreakNumber);
+            bool isMuted = matchingExceptionBreak != null && !matchingExceptionBreak.MusicEnabled;
 
             return new BreakResponseDto(
                 Id: b.Id,
-                BreakNumber: b.BreakNumber ?? b.Id,
+                BreakNumber: b.BreakNumber,
                 StartAt: startAt,
                 EndsAt: endsAt,
                 VoteEnds: b.VoteEnds.HasValue ? today.ToDateTime(TimeOnly.FromDateTime(b.VoteEnds.Value)) : null,
-                IsMuted: activeExceptionBreak != null && (activeExceptionBreak.StartsAt <= endsAt && (activeExceptionBreak.EndsAt == null || activeExceptionBreak.EndsAt.Value >= startAt)),
-                MuteReason: activeExceptionBreak?.Description
+                IsMuted: isMuted,
+                MuteReason: matchingExceptionBreak?.Description
             );
         }).ToList();
 
         var activeBreak = todayBreaks.FirstOrDefault(b => now >= b.StartAt && now <= b.EndsAt);
         var nextBreak = todayBreaks.Where(b => b.StartAt > now).OrderBy(b => b.StartAt).FirstOrDefault();
+
+        var activeExceptionBreak = activeBreak != null
+            ? todayExceptionBreaks.FirstOrDefault(eb => eb.BreakNumber == activeBreak.BreakNumber && !eb.MusicEnabled)
+            : null;
 
         bool isMusicPlaying = activeBreak != null && activeExceptionBreak == null;
 
@@ -188,10 +188,6 @@ public class RecessController : ControllerBase
             {
                 message = $"Trwa przerwa nr {activeBreak.BreakNumber} (do {activeBreak.EndsAt:HH:mm}). Muzyka gra!";
             }
-        }
-        else if (activeExceptionBreak != null)
-        {
-            message = $"Aktualnie trwa wyciszenie radiowęzła ({activeExceptionBreak.Description}).";
         }
         else if (nextBreak != null)
         {
@@ -224,7 +220,7 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> GetAllExceptionDays()
     {
         var exceptions = await _context.ExceptionDays
-            .OrderByDescending(e => e.StartAt)
+            .OrderByDescending(e => e.StartDate)
             .ToListAsync();
 
         return Ok(new
@@ -250,18 +246,20 @@ public class RecessController : ControllerBase
             });
         }
 
-        if (dto.EndsAt.HasValue && dto.EndsAt <= dto.StartAt)
+        var endDate = dto.EndDate ?? dto.StartDate;
+        if (endDate < dto.StartDate)
         {
             return BadRequest(new
             {
-                Message = "Data zakończenia musi być późniejsza niż data rozpoczęcia"
+                Message = "Data zakończenia musi być późniejsza lub równa dacie rozpoczęcia"
             });
         }
 
         var exceptionDay = new ExceptionDay
         {
-            StartAt = dto.StartAt,
-            EndsAt = dto.EndsAt,
+            StartDate = dto.StartDate,
+            EndDate = endDate,
+            DayType = string.IsNullOrWhiteSpace(dto.DayType) ? "no_music" : dto.DayType,
             Description = dto.Description
         };
 
@@ -312,7 +310,8 @@ public class RecessController : ControllerBase
     public async Task<IActionResult> GetAllExceptionBreaks()
     {
         var exceptionBreaks = await _context.ExceptionBreaks
-            .OrderByDescending(eb => eb.StartsAt)
+            .OrderByDescending(eb => eb.BreakDate)
+            .ThenBy(eb => eb.BreakNumber)
             .ToListAsync();
 
         return Ok(new
@@ -338,18 +337,11 @@ public class RecessController : ControllerBase
             });
         }
 
-        if (dto.EndsAt.HasValue && dto.EndsAt <= dto.StartsAt)
-        {
-            return BadRequest(new
-            {
-                Message = "Data zakończenia musi być późniejsza niż data rozpoczęcia"
-            });
-        }
-
         var exceptionBreak = new ExceptionBreak
         {
-            StartsAt = dto.StartsAt,
-            EndsAt = dto.EndsAt,
+            BreakDate = dto.BreakDate,
+            BreakNumber = dto.BreakNumber,
+            MusicEnabled = dto.MusicEnabled,
             Description = dto.Description
         };
 

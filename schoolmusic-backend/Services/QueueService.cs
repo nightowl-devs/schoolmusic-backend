@@ -218,7 +218,7 @@ namespace schoolmusic_backend.Services
             }
             else
             {
-                var allBreaks = await _context.Breaks.OrderBy(b => b.BreakNumber ?? b.Id).ToListAsync();
+                var allBreaks = await _context.Breaks.OrderBy(b => b.BreakNumber).ToListAsync();
                 var candidate = allBreaks.FirstOrDefault(b =>
                 {
                     var voteEndTime = b.VoteEnds.HasValue
@@ -556,7 +556,7 @@ namespace schoolmusic_backend.Services
             }
 
             // Obliczamy czas trwania przerwy w sekundach
-            DateTime end = breakEntity.EndsAt.HasValue ? breakEntity.EndsAt.Value : breakEntity.StartAt;
+            DateTime end = breakEntity.EndsAt;
             int durationSeconds = (int)(end - breakEntity.StartAt).TotalSeconds;
             if (durationSeconds <= 0)
             {
