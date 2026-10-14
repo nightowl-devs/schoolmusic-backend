@@ -35,6 +35,11 @@ namespace schoolmusic_backend.Services
         Task<ServiceResult<PlayerStatusDto>> PauseAsync();
         Task<ServiceResult<PlayerStatusDto>> ResumeAsync();
         Task<ServiceResult<PlayerStatusDto>> StopAsync();
+
+        /// <summary>
+        /// Zdarzenie wywoływane po zakończeniu odtwarzania utworu
+        /// </summary>
+        event Action? MediaEnded;
     }
 
     /// <summary>
@@ -51,6 +56,8 @@ namespace schoolmusic_backend.Services
         private string _currentSource = "None";
         private string? _currentTitle;
         private string? _currentArtist;
+
+        public event Action? MediaEnded;
 
         public AudioPlayerService(IHubContext<QueueHub> hubContext)
         {
@@ -82,6 +89,14 @@ namespace schoolmusic_backend.Services
                         _currentArtist = null;
                     }
                     await BroadcastPlaybackStatusAsync();
+                    try
+                    {
+                        MediaEnded?.Invoke();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[AudioPlayerService] Błąd w obsłudze MediaEnded: {ex.Message}");
+                    }
                 });
             };
 
