@@ -24,10 +24,12 @@ namespace schoolmusic_backend.Controllers
     public class PlayerController : Controller
     {
         private readonly IAudioPlayerService _playerServices;
+        private readonly IBreakSchedulerService _schedulerService;
 
-        public PlayerController(IAudioPlayerService audioPlayerService)
+        public PlayerController(IAudioPlayerService audioPlayerService, IBreakSchedulerService schedulerService)
         {
             _playerServices = audioPlayerService;
+            _schedulerService = schedulerService;
         }
         /// <summary>
         /// Przekształca obiekt ServiceResult na odpowiedź HTTP (IActionResult)
@@ -154,6 +156,22 @@ namespace schoolmusic_backend.Controllers
         {
             var result = await _playerServices.StopAsync();
             return FromResult(result);
+        }
+
+        /// <summary>
+        /// Pomija bieżący odtwarzany utwór i przełącza na kolejny z zaplanowanej kolejki
+        /// </summary>
+        [HttpPost("skip")]
+        [Authorize(Roles = "mod,admin,head_admin")]
+        public async Task<IActionResult> Skip()
+        {
+            var skipped = await _schedulerService.SkipCurrentTrackAsync();
+            return Ok(new
+            {
+                Message = "Pominięto bieżący utwór.",
+                Success = skipped,
+                PlayerStatus = _playerServices.GetStatus()
+            });
         }
 
         /// <summary>

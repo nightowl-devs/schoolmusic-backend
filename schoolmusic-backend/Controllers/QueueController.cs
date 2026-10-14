@@ -160,5 +160,73 @@ namespace schoolmusic_backend.Controllers
             var result = await _queueService.ArchiveBreakAsync(breakId);
             return FromResult(result);
         }
+
+        /// <summary>
+        /// Zmienia kolejność utworów w kolejce danej przerwy
+        /// </summary>
+        [HttpPut("break/{breakId:int}/order")]
+        [Authorize(Roles = "mod,admin,head_admin")]
+        public async Task<IActionResult> ReorderQueue(int breakId, [FromBody] ReorderQueueDto dto)
+        {
+            if (dto.QueueItemIds == null || dto.QueueItemIds.Count == 0)
+            {
+                return BadRequest(new { Message = "Lista identyfikatorów utworów nie może być pusta." });
+            }
+
+            var items = await _context.QueueItems
+                .Where(q => q.BreakId == breakId)
+                .ToListAsync();
+
+            if (items.Count == 0)
+            {
+                return NotFound(new { Message = "Brak utworów w kolejce dla podanej przerwy." });
+            }
+
+            var itemDict = items.ToDictionary(q => q.Id);
+            foreach (var id in dto.QueueItemIds)
+            {
+                if (!itemDict.ContainsKey(id))
+                {
+                    return BadRequest(new { Message = $"Utwór o identyfikatorze {id} nie należy do przerwy {breakId}." });
+                }
+            }
+
+            // Transakcyjna zmiana order_index z ujemnymi indeksami tymczasowymi dla uniknięcia kolizji uniq_break_order
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // Krok 1: Wartości ujemne tymczasowe
+                for (int i = 0; i < dto.QueueItemIds.Count; i++)
+                {
+                    itemDict[dto.QueueItemIds[i]].OrderIndex = -(i + 1);
+                }
+                await _context.SaveChangesAsync();
+
+                // Krok 2: Właściwe indeksy
+                for (int i = 0; i < dto.QueueItemIds.Count; i++)
+                {
+                    itemDict[dto.QueueItemIds[i]].OrderIndex = i + 1;
+                }
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(StatusCodes.Status500InternalServerError, new { Message = "Błąd podczas zmiany kolejności: " + ex.Message });
+            }
+
+            await _queueService.BroadcastQueueAsync(breakId);
+
+            return Ok(new
+            {
+                Message = "Zaktualizowano kolejność utworów w kolejce.",
+                BreakId = breakId,
+                NewOrder = dto.QueueItemIds
+            });
+        }
     }
+
+    public record ReorderQueueDto(List<int> QueueItemIds);
 }
