@@ -1,18 +1,53 @@
 services:
+  db:
+    image: mariadb:10.4
+    container_name: schoolmusic-db
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_DATABASE: schoolmusic
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./docs/schoolmusic.sql:/docker-entrypoint-initdb.d/01_init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-psecret"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: schoolmusic-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: schoolmusic-api
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__redis=redis:6379
+      - ASPNETCORE_ENVIRONMENT=Production
+      - Features__SwaggerEnabled=true
+      - ConnectionString__database=server=db;port=3306;database=schoolmusic;user=root;password=secret;
+      - ConnectionString__redis=redis:6379
+      - Jwt__Issuer=SchoolMusicAPI
+      - Jwt__Audience=SchoolMusicApp
+      - Jwt__Key=schoolmusic_super_secret_jwt_key_2026_dev!
+      - Cors__AllowedOrigins__0=http://localhost:3000
+      - Cors__AllowedOrigins__1=http://localhost:5173
+      - Cors__AllowedOrigins__2=http://localhost:8080
     depends_on:
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
-  redis:
-    image: redis:alpine
-    container_name: schoolmusic-redis
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
+volumes:
+  mariadb_data:
