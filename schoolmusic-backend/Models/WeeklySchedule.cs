@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -10,12 +10,11 @@ namespace schoolmusic_backend.Models;
 public partial class WeeklySchedule
 {
     [Key]
-    [Column("weekday")]
-    public bool Weekday { get; set; }
+    [Column("weekday", TypeName = "tinyint(4)")]
+    public sbyte Weekday { get; set; }
 
-    [Required]
     [Column("music_enabled")]
-    public bool? MusicEnabled { get; set; }
+    public bool MusicEnabled { get; set; } = true;
 
     [InverseProperty("WeekdayNavigation")]
     public virtual ICollection<WeeklyBreakSetting> WeeklyBreakSettings { get; set; } = new List<WeeklyBreakSetting>();

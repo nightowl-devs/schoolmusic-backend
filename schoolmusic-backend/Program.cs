@@ -52,11 +52,14 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect(redisConnectionString)
 );
 
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:3000", "http://localhost:5173", "http://localhost:8080"];
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("CorsPolicy", policy =>
     {
-        policy.SetIsOriginAllowed(_ => true)
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -72,12 +75,16 @@ builder.Services.AddScoped<IRadioStatusService, RadioStatusService>();
 builder.Services.AddScoped<IQueueService, QueueService>();
 builder.Services.AddScoped<IRankingsService, RankingsService>();
 builder.Services.AddSingleton<IAudioPlayerService, AudioPlayerService>();
+builder.Services.AddSingleton<BreakSchedulerService>();
+builder.Services.AddSingleton<IBreakSchedulerService>(sp => sp.GetRequiredService<BreakSchedulerService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BreakSchedulerService>());
+builder.Services.AddSingleton<ISongSourceService, SpotifySongSource>();
 
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Features:SwaggerEnabled"))
 {
     app.MapOpenApi();
     app.MapScalarApiReference();

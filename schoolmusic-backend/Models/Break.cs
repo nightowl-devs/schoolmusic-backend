@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -30,9 +30,8 @@ public partial class Break
     [Column("vote_ends", TypeName = "datetime")]
     public DateTime? VoteEnds { get; set; }
 
-    [Required]
     [Column("music_enabled")]
-    public bool? MusicEnabled { get; set; }
+    public bool MusicEnabled { get; set; } = true;
 
     [InverseProperty("Break")]
     public virtual ICollection<History> Histories { get; set; } = new List<History>();

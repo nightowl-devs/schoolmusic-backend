@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -42,9 +42,8 @@ public partial class Song
     [Column("duration_ms", TypeName = "int(11)")]
     public int DurationMs { get; set; }
 
-    [Required]
     [Column("is_active")]
-    public bool? IsActive { get; set; }
+    public bool IsActive { get; set; } = true;
 
     [Column("created_at", TypeName = "datetime")]
     public DateTime CreatedAt { get; set; }

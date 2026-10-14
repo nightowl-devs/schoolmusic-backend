@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -12,8 +12,8 @@ namespace schoolmusic_backend.Models;
 public partial class WeeklyBreakSetting
 {
     [Key]
-    [Column("weekday")]
-    public bool Weekday { get; set; }
+    [Column("weekday", TypeName = "tinyint(4)")]
+    public sbyte Weekday { get; set; }
 
     [Key]
     [Column("break_number", TypeName = "tinyint(4)")]

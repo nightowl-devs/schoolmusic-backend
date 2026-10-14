@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microting.EntityFrameworkCore.MySql.Scaffolding.Internal;
@@ -59,10 +59,6 @@ public partial class schoolmusicContext : DbContext
     public virtual DbSet<WeeklyBreakSetting> WeeklyBreakSettings { get; set; }
 
     public virtual DbSet<WeeklySchedule> WeeklySchedules { get; set; }
-
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-        => optionsBuilder.UseMySql("server=localhost;port=3306;database=schoolmusic;user=root;allowpublickeyretrieval=True;sslmode=None", Microsoft.EntityFrameworkCore.ServerVersion.Parse("10.4.32-mariadb"));
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -166,7 +162,9 @@ public partial class schoolmusicContext : DbContext
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
 
-            entity.Property(e => e.Id).HasDefaultValueSql("'1'");
+            entity.Property(e => e.Id)
+                .HasColumnType("tinyint(4)")
+                .HasDefaultValueSql("'1'");
             entity.Property(e => e.UpdatedAt)
                 .ValueGeneratedOnAddOrUpdate()
                 .HasDefaultValueSql("current_timestamp()");
@@ -325,6 +323,8 @@ public partial class schoolmusicContext : DbContext
                 .HasName("PRIMARY")
                 .HasAnnotation("MySql:IndexPrefixLength", new[] { 0, 0 });
 
+            entity.Property(e => e.Weekday).HasColumnType("tinyint(4)");
+
             entity.HasOne(d => d.BreakNumberNavigation).WithMany(p => p.WeeklyBreakSettings)
                 .HasPrincipalKey(p => p.BreakNumber)
                 .HasForeignKey(d => d.BreakNumber)
@@ -339,6 +339,8 @@ public partial class schoolmusicContext : DbContext
         modelBuilder.Entity<WeeklySchedule>(entity =>
         {
             entity.HasKey(e => e.Weekday).HasName("PRIMARY");
+
+            entity.Property(e => e.Weekday).HasColumnType("tinyint(4)");
 
             entity.Property(e => e.MusicEnabled).HasDefaultValueSql("'1'");
         });

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -11,8 +11,8 @@ namespace schoolmusic_backend.Models;
 public partial class PlaybackState
 {
     [Key]
-    [Column("id")]
-    public bool? Id { get; set; }
+    [Column("id", TypeName = "tinyint(4)")]
+    public sbyte Id { get; set; } = 1;
 
     [Column("current_queue_item_id", TypeName = "int(11)")]
     public int? CurrentQueueItemId { get; set; }
