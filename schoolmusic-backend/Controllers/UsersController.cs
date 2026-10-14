@@ -170,38 +170,4 @@ public class UsersController : ControllerBase
 
         return NoContent();
     }
-
-    [HttpPost("testing")]
-    [Authorize]
-    public async Task<IActionResult> TestingAuth()
-    {
-        var userIdClaims = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                ?? User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-
-        if (!int.TryParse(userIdClaims, out int currentUserId))
-        {
-            return Unauthorized(new
-            {
-                Message = "Błędna wartość w tokenie"
-            });
-        }
-
-        var user = _context.Users.Find(currentUserId);
-
-        if(user == null)
-        {
-            return BadRequest(new
-            {
-                Message = "User nie znaleziony"
-            });
-        }
-
-        return Ok(new
-        {
-            Message = "User znaleziony",
-            Ranga = user.Rank,
-            Username = user.UserLogin,
-            CreatedAt = user.CreatedAt
-        });
-    }
 }
