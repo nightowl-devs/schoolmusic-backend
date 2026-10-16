@@ -84,7 +84,7 @@ public class TracksController : ControllerBase
         [FromQuery] int? breakId = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? sortBy = "title",
+        [FromQuery] string? sortBy = "id",
         [FromQuery] string? sortOrder = "asc")
     {
         var query = _context.Songs
@@ -109,6 +109,8 @@ public class TracksController : ControllerBase
         var order = sortOrder?.ToLowerInvariant() == "desc" ? "desc" : "asc";
         query = (sortBy?.ToLowerInvariant(), order) switch
         {
+            ("id", "desc") => query.OrderByDescending(s => s.Id),
+            ("id", "asc") => query.OrderBy(s => s.Id),
             ("artist", "desc") => query.OrderByDescending(s => s.Artist.Name).ThenBy(s => s.Title),
             ("artist", "asc") => query.OrderBy(s => s.Artist.Name).ThenBy(s => s.Title),
             ("duration", "desc") => query.OrderByDescending(s => s.DurationMs).ThenBy(s => s.Title),
@@ -126,7 +128,8 @@ public class TracksController : ControllerBase
                     .SelectMany(q => q.Votes).Count()).ThenBy(s => s.Title)
                 : query.OrderBy(s => s.Title),
             ("title", "desc") => query.OrderByDescending(s => s.Title),
-            _ => query.OrderBy(s => s.Title)
+            ("title", "asc") => query.OrderBy(s => s.Title),
+            _ => query.OrderBy(s => s.Id)
         };
 
         int total = await query.CountAsync();
