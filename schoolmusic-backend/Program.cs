@@ -8,7 +8,7 @@ using LibVLCSharp.Shared;
 using schoolmusic_backend.Services;
 
 /// TODO: commets to every controller, to make code more readable,
-/// since the first controllers (UserController, TracksController) are simple but the more advanced 
+/// since the first controllers (UserController, TracksController) are simple but the more advanced
 /// ones will be a lot more complex
 
 LibVLCSharp.Shared.Core.Initialize();
@@ -79,7 +79,8 @@ builder.Services.AddSingleton<BreakSchedulerService>();
 builder.Services.AddSingleton<IBreakSchedulerService>(sp => sp.GetRequiredService<BreakSchedulerService>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BreakSchedulerService>());
 builder.Services.AddSingleton<ISongSourceService, SpotifySongSource>();
-
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<ISystemStatusService, SystemStatusService>();
 
 var app = builder.Build();
 
