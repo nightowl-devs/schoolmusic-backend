@@ -5,7 +5,7 @@ namespace schoolmusic_backend.Services
     /// wiadomości oraz ładunku danych
     /// </summary>
     /// <remarks>Udostępnia metody fabryczne tworzące typowe odpowiedzi HTTP (np. 200, 201, 202, 400, 401,
-    /// 403, 404, 409).</remarks>
+    /// 403, 404, 409, 503).</remarks>
     public class ServiceResult<T>
     {
         public bool Success { get; init; }
@@ -36,5 +36,8 @@ namespace schoolmusic_backend.Services
 
         public static ServiceResult<T> Conflict(string message) 
             => new() { Success = false, StatusCode = 409, Message = message };
+
+        public static ServiceResult<T> ServiceUnavailable(string message)
+            => new() { Success = false, StatusCode = 503, Message = message };
     }
 }

@@ -39,17 +39,20 @@ namespace schoolmusic_backend.Services
         private readonly IConnectionMultiplexer _redis;
         private readonly IHubContext<QueueHub> _hubContext;
         private readonly IBreakService _breakService;
+        private readonly ISongSourceService _songSourceService;
 
         public QueueService(
             schoolmusicContext context,
             IConnectionMultiplexer redis,
             IHubContext<QueueHub> hubContext,
-            IBreakService breakService)
+            IBreakService breakService,
+            ISongSourceService songSourceService)
         {
             _context = context;
             _redis = redis;
             _hubContext = hubContext;
             _breakService = breakService;
+            _songSourceService = songSourceService;
         }
 
         /// <summary>
@@ -173,11 +176,21 @@ namespace schoolmusic_backend.Services
             else if (!string.IsNullOrWhiteSpace(dto.SpotifyId))
             {
                 song = await _context.Songs.Include(s => s.Artist).FirstOrDefaultAsync(s => s.SpotifyId == dto.SpotifyId);
+                if (song == null)
+                {
+                    if (!_songSourceService.IsConfigured)
+                    {
+                        return ServiceResult<object>.ServiceUnavailable(
+                            "Propozycje utworów Spotify są niedostępne. Skonfiguruj Spotify:ClientId i Spotify:ClientSecret.");
+                    }
+
+                    song = await SpotifyTrackImporter.GetOrImportAsync(_context, _songSourceService, dto.SpotifyId);
+                }
             }
 
             if (song == null)
             {
-                return ServiceResult<object>.NotFound("Nie znaleziono utworu w bazie danych.");
+                return ServiceResult<object>.NotFound("Nie znaleziono utworu w bazie danych ani w Spotify.");
             }
 
             // Sprawdzenie czarnej listy

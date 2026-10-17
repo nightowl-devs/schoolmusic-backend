@@ -19,13 +19,23 @@ public class TracksControllerTests
         return new schoolmusicContext(options);
     }
 
-    private (TracksController controller, schoolmusicContext context) CreateController(string dbName, int? userId = null)
+    private (TracksController controller, schoolmusicContext context) CreateController(
+        string dbName,
+        int? userId = null,
+        Mock<ISongSourceService>? songSource = null,
+        bool spotifyConfigured = true)
     {
         var context = CreateInMemoryContext(dbName);
         var mockBreakService = new Mock<IBreakService>();
         var mockAudioPlayer = new Mock<IAudioPlayerService>();
+        songSource ??= new Mock<ISongSourceService>();
+        songSource.SetupGet(source => source.IsConfigured).Returns(spotifyConfigured);
 
-        var controller = new TracksController(context, mockBreakService.Object, mockAudioPlayer.Object);
+        var controller = new TracksController(
+            context,
+            mockBreakService.Object,
+            mockAudioPlayer.Object,
+            songSource.Object);
 
         var httpContext = new DefaultHttpContext();
         if (userId.HasValue)
@@ -265,5 +275,97 @@ public class TracksControllerTests
 
         var result = await controller.GetTrackById(999);
         Assert.IsType<NotFoundObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task SearchTracks_ReturnsSpotifySearchResults()
+    {
+        var songSource = new Mock<ISongSourceService>();
+        songSource.SetupGet(source => source.IsConfigured).Returns(true);
+        songSource.Setup(source => source.SearchTracksAsync("test", 20))
+            .ReturnsAsync(new[]
+            {
+                new ExternalTrackDto("spotify-id", "Song", "Artist", "cover.jpg", 123000, null, "spotify")
+            });
+        var (controller, _) = CreateController(nameof(SearchTracks_ReturnsSpotifySearchResults), songSource: songSource);
+
+        var result = Assert.IsType<OkObjectResult>(await controller.SearchTracks(" test "));
+        var track = Assert.Single(Assert.IsAssignableFrom<IEnumerable<object>>(result.Value));
+        Assert.Equal("spotify-id", track.GetType().GetProperty("externalId")?.GetValue(track));
+        Assert.Equal("Song", track.GetType().GetProperty("title")?.GetValue(track));
+        Assert.Equal("Artist", track.GetType().GetProperty("artist")?.GetValue(track));
+    }
+
+    [Fact]
+    public async Task SearchTracks_WhenSpotifyIsNotConfigured_ReturnsServiceUnavailable()
+    {
+        var songSource = new Mock<ISongSourceService>();
+        songSource.SetupGet(source => source.IsConfigured).Returns(false);
+        var (controller, _) = CreateController(
+            nameof(SearchTracks_WhenSpotifyIsNotConfigured_ReturnsServiceUnavailable),
+            songSource: songSource,
+            spotifyConfigured: false);
+
+        var result = Assert.IsType<ObjectResult>(await controller.SearchTracks("test"));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
+        Assert.Contains("Spotify:ClientId", result.Value?.GetType().GetProperty("Message")?.GetValue(result.Value)?.ToString());
+        songSource.Verify(source => source.SearchTracksAsync(It.IsAny<string>(), It.IsAny<int>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AddToFavouritesSpotifyId_ImportsMissingTrackAndArtist()
+    {
+        var spotifyTrack = new ExternalTrackDto("spotify-id", "New Song", "New Artist", "cover.jpg", 123000, null, "spotify");
+        var songSource = new Mock<ISongSourceService>();
+        songSource.SetupGet(source => source.IsConfigured).Returns(true);
+        songSource.Setup(source => source.GetTrackByIdAsync("spotify-id")).ReturnsAsync(spotifyTrack);
+        var (controller, context) = CreateController(nameof(AddToFavouritesSpotifyId_ImportsMissingTrackAndArtist), userId: 7, songSource: songSource);
+        context.Users.Add(new User
+        {
+            Id = 7,
+            UserLogin = "testuser",
+            UserPassword = "hash",
+            RankId = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var result = await controller.AddToFavouritesSpotifyId("spotify-id");
+
+        Assert.IsType<OkObjectResult>(result);
+        var song = await context.Songs.Include(candidate => candidate.Artist).SingleAsync();
+        Assert.Equal("spotify-id", song.SpotifyId);
+        Assert.Equal("New Song", song.Title);
+        Assert.Equal("New Artist", song.Artist.Name);
+        Assert.Equal("cover.jpg", song.Cover);
+        Assert.Equal(123000, song.DurationMs);
+        Assert.Single(await context.Artists.ToListAsync());
+        Assert.Contains(song, (await context.Users.SingleAsync()).Songs);
+    }
+
+    [Fact]
+    public async Task AddToFavouritesSpotifyId_WhenSpotifyIsNotConfigured_ReturnsServiceUnavailable()
+    {
+        var songSource = new Mock<ISongSourceService>();
+        songSource.SetupGet(source => source.IsConfigured).Returns(false);
+        var (controller, context) = CreateController(
+            nameof(AddToFavouritesSpotifyId_WhenSpotifyIsNotConfigured_ReturnsServiceUnavailable),
+            userId: 7,
+            songSource: songSource,
+            spotifyConfigured: false);
+        context.Users.Add(new User
+        {
+            Id = 7,
+            UserLogin = "testuser",
+            UserPassword = "hash",
+            RankId = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var result = Assert.IsType<ObjectResult>(await controller.AddToFavouritesSpotifyId("spotify-id"));
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
     }
 }

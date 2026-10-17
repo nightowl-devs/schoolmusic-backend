@@ -18,10 +18,14 @@ public class QueueServiceTests
         return new schoolmusicContext(options);
     }
 
-    private (IQueueService service, schoolmusicContext context) CreateService(string dbName)
+    private (IQueueService service, schoolmusicContext context) CreateService(
+        string dbName,
+        Mock<ISongSourceService>? songSource = null,
+        bool spotifyConfigured = true,
+        Mock<IConnectionMultiplexer>? redisConnection = null)
     {
         var context = CreateInMemoryContext(dbName);
-        var mockRedis = new Mock<IConnectionMultiplexer>();
+        redisConnection ??= new Mock<IConnectionMultiplexer>();
         var mockHub = new Mock<IHubContext<QueueHub>>();
         var mockClients = new Mock<IHubClients>();
         var mockClientProxy = new Mock<IClientProxy>();
@@ -29,8 +33,10 @@ public class QueueServiceTests
         mockHub.Setup(h => h.Clients).Returns(mockClients.Object);
 
         var mockBreakService = new Mock<IBreakService>();
+        songSource ??= new Mock<ISongSourceService>();
+        songSource.SetupGet(source => source.IsConfigured).Returns(spotifyConfigured);
 
-        var service = new QueueService(context, mockRedis.Object, mockHub.Object, mockBreakService.Object);
+        var service = new QueueService(context, redisConnection.Object, mockHub.Object, mockBreakService.Object, songSource.Object);
         return (service, context);
     }
 
@@ -158,5 +164,77 @@ public class QueueServiceTests
         Assert.Equal(200, result.StatusCode);
         var recordedVote = await context.Votes.FirstOrDefaultAsync(v => v.UserId == 5 && v.QueueItemId == 200);
         Assert.NotNull(recordedVote);
+    }
+
+    [Fact]
+    public async Task ProposeSongAsync_WhenSpotifyIsNotConfigured_ReturnsServiceUnavailable()
+    {
+        var (service, _) = CreateService(
+            nameof(ProposeSongAsync_WhenSpotifyIsNotConfigured_ReturnsServiceUnavailable),
+            spotifyConfigured: false);
+
+        var result = await service.ProposeSongAsync(new ProposeSongDto(null, "spotify-id", null), currentUserId: 1);
+
+        Assert.False(result.Success);
+        Assert.Equal(503, result.StatusCode);
+        Assert.Contains("Spotify:ClientId", result.Message);
+    }
+
+    [Fact]
+    public async Task ProposeSongAsync_ImportsMissingSpotifyTrackBeforeSubmitting()
+    {
+        var spotifyTrack = new ExternalTrackDto("spotify-id", "New Song", "New Artist", "cover.jpg", 123000, null, "spotify");
+        var songSource = new Mock<ISongSourceService>();
+        songSource.Setup(source => source.GetTrackByIdAsync("spotify-id")).ReturnsAsync(spotifyTrack);
+
+        var redis = new Mock<IConnectionMultiplexer>();
+        var database = new Mock<IDatabase>();
+        redis.Setup(connection => connection.GetDatabase(It.IsAny<int>(), It.IsAny<object>()))
+            .Returns(database.Object);
+        database.Setup(db => db.ListRangeAsync(
+                It.IsAny<RedisKey>(),
+                It.IsAny<long>(),
+                It.IsAny<long>(),
+                It.IsAny<CommandFlags>()))
+            .ReturnsAsync(Array.Empty<RedisValue>());
+        database.Setup(db => db.ListRightPushAsync(
+                It.IsAny<RedisKey>(),
+                It.IsAny<RedisValue>(),
+                It.IsAny<When>(),
+                It.IsAny<CommandFlags>()))
+            .ReturnsAsync(1);
+
+        var (service, context) = CreateService(
+            nameof(ProposeSongAsync_ImportsMissingSpotifyTrackBeforeSubmitting),
+            songSource,
+            redisConnection: redis);
+        context.Breaks.Add(new Break
+        {
+            Id = 10,
+            BreakDate = DateOnly.FromDateTime(DateTime.Now),
+            BreakNumber = 1,
+            StartAt = DateTime.Now.AddHours(1),
+            EndsAt = DateTime.Now.AddHours(2),
+            VoteEnds = DateTime.Now.AddMinutes(30),
+            MusicEnabled = true
+        });
+        await context.SaveChangesAsync();
+
+        var result = await service.ProposeSongAsync(
+            new ProposeSongDto(null, "spotify-id", 10),
+            currentUserId: 1);
+
+        Assert.True(result.Success);
+        Assert.Equal(202, result.StatusCode);
+        var song = await context.Songs.Include(candidate => candidate.Artist).SingleAsync();
+        Assert.Equal("spotify-id", song.SpotifyId);
+        Assert.Equal("New Song", song.Title);
+        Assert.Equal("New Artist", song.Artist.Name);
+        songSource.Verify(source => source.GetTrackByIdAsync("spotify-id"), Times.Once);
+        database.Verify(db => db.ListRightPushAsync(
+            "proposals:pending",
+            It.IsAny<RedisValue>(),
+            When.Always,
+            CommandFlags.None), Times.Once);
     }
 }
