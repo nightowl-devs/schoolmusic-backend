@@ -293,38 +293,6 @@ namespace schoolmusic_backend.Controllers
                 .OrderBy(t => t.BreakNumber)
                 .ToListAsync();
 
-            if (templates.Count == 0)
-            {
-                var defaultBreaks = await _context.Breaks
-                    .OrderBy(b => b.BreakNumber)
-                    .ToListAsync();
-
-                if (defaultBreaks.Count > 0)
-                {
-                    templates = defaultBreaks.Select(b => new BreakTemplate
-                    {
-                        Id = b.Id,
-                        BreakNumber = b.BreakNumber,
-                        StartsTime = TimeOnly.FromDateTime(b.StartAt),
-                        EndsTime = TimeOnly.FromDateTime(b.EndsAt)
-                    }).ToList();
-                }
-                else
-                {
-                    templates = new List<BreakTemplate>
-                    {
-                        new() { BreakNumber = 1, StartsTime = new TimeOnly(7, 45), EndsTime = new TimeOnly(7, 55) },
-                        new() { BreakNumber = 2, StartsTime = new TimeOnly(8, 40), EndsTime = new TimeOnly(8, 50) },
-                        new() { BreakNumber = 3, StartsTime = new TimeOnly(9, 35), EndsTime = new TimeOnly(9, 45) },
-                        new() { BreakNumber = 4, StartsTime = new TimeOnly(10, 30), EndsTime = new TimeOnly(10, 50) },
-                        new() { BreakNumber = 5, StartsTime = new TimeOnly(11, 35), EndsTime = new TimeOnly(11, 45) },
-                        new() { BreakNumber = 6, StartsTime = new TimeOnly(12, 30), EndsTime = new TimeOnly(12, 40) },
-                        new() { BreakNumber = 7, StartsTime = new TimeOnly(13, 25), EndsTime = new TimeOnly(13, 35) },
-                        new() { BreakNumber = 8, StartsTime = new TimeOnly(14, 20), EndsTime = new TimeOnly(14, 25) }
-                    };
-                }
-            }
-
             var startDateTime = startDate.ToDateTime(TimeOnly.MinValue);
             var endDateTime = endDate.ToDateTime(TimeOnly.MaxValue);
             var specialEvents = await _context.SpecialEvents
