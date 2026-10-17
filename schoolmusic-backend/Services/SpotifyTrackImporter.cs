@@ -38,6 +38,7 @@ internal static class SpotifyTrackImporter
             Title = externalTrack.Title,
             Artist = artist,
             Cover = externalTrack.CoverUrl,
+            SongUrl = externalTrack.PreviewUrl,
             DurationMs = externalTrack.DurationMs,
             IsActive = true,
             CreatedAt = DateTime.UtcNow

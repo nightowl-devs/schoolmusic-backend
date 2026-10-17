@@ -183,7 +183,7 @@ public class QueueServiceTests
     [Fact]
     public async Task ProposeSongAsync_ImportsMissingSpotifyTrackBeforeSubmitting()
     {
-        var spotifyTrack = new ExternalTrackDto("spotify-id", "New Song", "New Artist", "cover.jpg", 123000, null, "spotify");
+        var spotifyTrack = new ExternalTrackDto("spotify-id", "New Song", "New Artist", "cover.jpg", 123000, "https://preview.test/track.mp3", "spotify");
         var songSource = new Mock<ISongSourceService>();
         songSource.Setup(source => source.GetTrackByIdAsync("spotify-id")).ReturnsAsync(spotifyTrack);
 
@@ -230,6 +230,7 @@ public class QueueServiceTests
         Assert.Equal("spotify-id", song.SpotifyId);
         Assert.Equal("New Song", song.Title);
         Assert.Equal("New Artist", song.Artist.Name);
+        Assert.Equal("https://preview.test/track.mp3", song.SongUrl);
         songSource.Verify(source => source.GetTrackByIdAsync("spotify-id"), Times.Once);
         database.Verify(db => db.ListRightPushAsync(
             "proposals:pending",
