@@ -18,6 +18,59 @@ namespace schoolmusic_backend.Controllers
         bool IsOverridden
     );
 
+    public record CalendarSpecialEventDto(
+        int Id,
+        string? Title,
+        string FileUrl,
+        DateTime StartsAt,
+        string EventStatus
+    );
+
+    public record CalendarBreakDto(
+        sbyte BreakNumber,
+        string StartsTime,
+        string EndsTime,
+        DateTime StartAt,
+        DateTime EndsAt,
+        bool IsMusicEnabled,
+        bool IsOverridden,
+        string RuleSource,
+        string? Reason
+    );
+
+    public record CalendarExceptionDayDto(
+        int Id,
+        DateOnly StartDate,
+        DateOnly EndDate,
+        string DayType,
+        string? Description
+    );
+
+    public record CalendarDayDto(
+        DateOnly Date,
+        sbyte Weekday,
+        string DayName,
+        string DayType,
+        string StatusDescription,
+        bool IsSchoolDay,
+        bool IsMusicEnabled,
+        bool HasExceptions,
+        CalendarExceptionDayDto? ExceptionDay,
+        string BellScheduleTemplate,
+        List<CalendarBreakDto> Breaks,
+        List<CalendarSpecialEventDto> SoundEvents
+    );
+
+    public record CalendarScheduleResponseDto(
+        DateOnly From,
+        DateOnly To,
+        int TotalDays,
+        int SchoolDaysCount,
+        int DaysOffCount,
+        int MusicActiveDaysCount,
+        List<CalendarDayDto> Days
+    );
+
     /// <summary>
     /// Kontroler do zarządzania domyślnym harmonogramem tygodniowym przerw i odtwarzania muzyki
     /// </summary>
@@ -199,6 +252,291 @@ namespace schoolmusic_backend.Controllers
                 BreakNumber = breakNo,
                 dto.MusicEnabled
             });
+        }
+
+        /// <summary>
+        /// Zwraca zagregowany widok kalendarza dla zadanego przedziału dat (maks. 31 dni).
+        /// Uwzględnia standardowe szablony dzwonków, reguły tygodniowe, dni wolne, wyjątki oraz wydarzenia dźwiękowe.
+        /// </summary>
+        [HttpGet("calendar")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GetCalendarSchedule(
+            [FromQuery] DateOnly? from = null,
+            [FromQuery] DateOnly? to = null)
+        {
+            var startDate = from ?? DateOnly.FromDateTime(DateTime.Today);
+            var endDate = to ?? (from.HasValue ? from.Value.AddDays(30) : startDate.AddDays(30));
+
+            if (startDate > endDate)
+            {
+                return BadRequest(new { Message = "Data początkowa ('from') nie może być późniejsza niż data końcowa ('to')." });
+            }
+
+            int totalDays = endDate.DayNumber - startDate.DayNumber + 1;
+            if (totalDays > 31)
+            {
+                return BadRequest(new { Message = "Maksymalny dozwolony zakres kalendarza wynosi 31 dni." });
+            }
+
+            var exceptionDays = await _context.ExceptionDays
+                .Where(e => e.StartDate <= endDate && e.EndDate >= startDate)
+                .ToListAsync();
+
+            var exceptionBreaks = await _context.ExceptionBreaks
+                .Where(eb => eb.BreakDate >= startDate && eb.BreakDate <= endDate)
+                .ToListAsync();
+
+            var weeklyDays = await _context.WeeklySchedules.ToListAsync();
+            var weeklyBreaks = await _context.WeeklyBreakSettings.ToListAsync();
+
+            var templates = await _context.BreakTemplates
+                .OrderBy(t => t.BreakNumber)
+                .ToListAsync();
+
+            if (templates.Count == 0)
+            {
+                var defaultBreaks = await _context.Breaks
+                    .OrderBy(b => b.BreakNumber)
+                    .ToListAsync();
+
+                if (defaultBreaks.Count > 0)
+                {
+                    templates = defaultBreaks.Select(b => new BreakTemplate
+                    {
+                        Id = b.Id,
+                        BreakNumber = b.BreakNumber,
+                        StartsTime = TimeOnly.FromDateTime(b.StartAt),
+                        EndsTime = TimeOnly.FromDateTime(b.EndsAt)
+                    }).ToList();
+                }
+                else
+                {
+                    templates = new List<BreakTemplate>
+                    {
+                        new() { BreakNumber = 1, StartsTime = new TimeOnly(7, 45), EndsTime = new TimeOnly(7, 55) },
+                        new() { BreakNumber = 2, StartsTime = new TimeOnly(8, 40), EndsTime = new TimeOnly(8, 50) },
+                        new() { BreakNumber = 3, StartsTime = new TimeOnly(9, 35), EndsTime = new TimeOnly(9, 45) },
+                        new() { BreakNumber = 4, StartsTime = new TimeOnly(10, 30), EndsTime = new TimeOnly(10, 50) },
+                        new() { BreakNumber = 5, StartsTime = new TimeOnly(11, 35), EndsTime = new TimeOnly(11, 45) },
+                        new() { BreakNumber = 6, StartsTime = new TimeOnly(12, 30), EndsTime = new TimeOnly(12, 40) },
+                        new() { BreakNumber = 7, StartsTime = new TimeOnly(13, 25), EndsTime = new TimeOnly(13, 35) },
+                        new() { BreakNumber = 8, StartsTime = new TimeOnly(14, 20), EndsTime = new TimeOnly(14, 25) }
+                    };
+                }
+            }
+
+            var startDateTime = startDate.ToDateTime(TimeOnly.MinValue);
+            var endDateTime = endDate.ToDateTime(TimeOnly.MaxValue);
+            var specialEvents = await _context.SpecialEvents
+                .Where(s => s.StartsAt >= startDateTime && s.StartsAt <= endDateTime)
+                .OrderBy(s => s.StartsAt)
+                .ToListAsync();
+
+            var daysList = new List<CalendarDayDto>();
+            int schoolDaysCount = 0;
+            int daysOffCount = 0;
+            int musicActiveDaysCount = 0;
+
+            for (var curr = startDate; curr <= endDate; curr = curr.AddDays(1))
+            {
+                sbyte weekday = (sbyte)curr.DayOfWeek;
+                if (weekday == 0) weekday = 7;
+                string dayName = DayNames.GetValueOrDefault(weekday, $"Dzień {weekday}");
+
+                var excDay = exceptionDays.FirstOrDefault(e => e.StartDate <= curr && curr <= e.EndDate);
+
+                string dayType;
+                string statusDescription;
+                bool isSchoolDay;
+                bool hasExceptions = false;
+                CalendarExceptionDayDto? excDayDto = null;
+
+                if (excDay != null)
+                {
+                    hasExceptions = true;
+                    excDayDto = new CalendarExceptionDayDto(
+                        excDay.Id,
+                        excDay.StartDate,
+                        excDay.EndDate,
+                        excDay.DayType,
+                        excDay.Description
+                    );
+
+                    if (excDay.DayType == "day_off")
+                    {
+                        dayType = "day_off";
+                        statusDescription = string.IsNullOrWhiteSpace(excDay.Description) ? "Dzień wolny" : excDay.Description;
+                        isSchoolDay = false;
+                        daysOffCount++;
+                    }
+                    else
+                    {
+                        dayType = "no_music";
+                        statusDescription = string.IsNullOrWhiteSpace(excDay.Description) ? "Dzień bez muzyki" : excDay.Description;
+                        isSchoolDay = true;
+                        schoolDaysCount++;
+                    }
+                }
+                else if (weekday >= 6)
+                {
+                    dayType = "weekend";
+                    statusDescription = "Weekend";
+                    isSchoolDay = false;
+                    daysOffCount++;
+                }
+                else
+                {
+                    var weeklySchedule = weeklyDays.FirstOrDefault(ws => ws.Weekday == weekday);
+                    bool weeklyMusic = weeklySchedule?.MusicEnabled ?? true;
+
+                    if (weeklyMusic)
+                    {
+                        dayType = "school_day";
+                        statusDescription = "Dzień nauki";
+                    }
+                    else
+                    {
+                        dayType = "school_day_no_music";
+                        statusDescription = "Dzień nauki (muzyka wyłączona w harmonogramie tygodniowym)";
+                    }
+                    isSchoolDay = true;
+                    schoolDaysCount++;
+                }
+
+                var breaksList = new List<CalendarBreakDto>();
+                bool dayHasAnyMusicPlaying = false;
+
+                foreach (var template in templates)
+                {
+                    var startAt = curr.ToDateTime(template.StartsTime);
+                    var endsAt = curr.ToDateTime(template.EndsTime);
+
+                    bool isBreakMusicEnabled;
+                    bool isOverridden;
+                    string ruleSource;
+                    string? reason = null;
+
+                    if (excDay != null)
+                    {
+                        isBreakMusicEnabled = false;
+                        isOverridden = true;
+                        ruleSource = "exception_day";
+                        reason = excDay.Description ?? (excDay.DayType == "day_off" ? "Dzień wolny" : "Dzień bez muzyki");
+                    }
+                    else if (weekday >= 6)
+                    {
+                        isBreakMusicEnabled = false;
+                        isOverridden = false;
+                        ruleSource = "weekend";
+                        reason = "Weekend";
+                    }
+                    else
+                    {
+                        var excBreak = exceptionBreaks.FirstOrDefault(eb => eb.BreakDate == curr && eb.BreakNumber == template.BreakNumber);
+                        if (excBreak != null)
+                        {
+                            hasExceptions = true;
+                            isBreakMusicEnabled = excBreak.MusicEnabled;
+                            isOverridden = true;
+                            ruleSource = "exception_break";
+                            reason = excBreak.Description ?? (excBreak.MusicEnabled ? "Włączona przez wyjątek przerwy" : "Wyciszona przez wyjątek przerwy");
+                        }
+                        else
+                        {
+                            var weeklyBreak = weeklyBreaks.FirstOrDefault(wb => wb.Weekday == weekday && wb.BreakNumber == template.BreakNumber);
+                            if (weeklyBreak != null)
+                            {
+                                isBreakMusicEnabled = weeklyBreak.MusicEnabled;
+                                isOverridden = true;
+                                ruleSource = "weekly_break";
+                                reason = weeklyBreak.MusicEnabled ? "Włączona w harmonogramie tygodniowym dla tej przerwy" : "Wyciszona w harmonogramie tygodniowym dla tej przerwy";
+                            }
+                            else
+                            {
+                                var weeklySchedule = weeklyDays.FirstOrDefault(ws => ws.Weekday == weekday);
+                                if (weeklySchedule != null)
+                                {
+                                    isBreakMusicEnabled = weeklySchedule.MusicEnabled;
+                                    isOverridden = false;
+                                    ruleSource = "weekly_day";
+                                    reason = weeklySchedule.MusicEnabled ? null : "Wyciszona w harmonogramie tygodniowym dla tego dnia";
+                                }
+                                else
+                                {
+                                    isBreakMusicEnabled = true;
+                                    isOverridden = false;
+                                    ruleSource = "default";
+                                    reason = null;
+                                }
+                            }
+                        }
+                    }
+
+                    if (isBreakMusicEnabled)
+                    {
+                        dayHasAnyMusicPlaying = true;
+                    }
+
+                    breaksList.Add(new CalendarBreakDto(
+                        BreakNumber: template.BreakNumber,
+                        StartsTime: template.StartsTime.ToString("HH:mm:ss"),
+                        EndsTime: template.EndsTime.ToString("HH:mm:ss"),
+                        StartAt: startAt,
+                        EndsAt: endsAt,
+                        IsMusicEnabled: isBreakMusicEnabled,
+                        IsOverridden: isOverridden,
+                        RuleSource: ruleSource,
+                        Reason: reason
+                    ));
+                }
+
+                if (dayHasAnyMusicPlaying)
+                {
+                    musicActiveDaysCount++;
+                }
+
+                var dayEvents = specialEvents
+                    .Where(s => DateOnly.FromDateTime(s.StartsAt) == curr)
+                    .Select(s => new CalendarSpecialEventDto(
+                        Id: s.Id,
+                        Title: s.Title,
+                        FileUrl: s.FileUrl,
+                        StartsAt: s.StartsAt,
+                        EventStatus: s.EventStatus
+                    ))
+                    .ToList();
+
+                string bellTemplateName = templates.Count > 0
+                    ? $"Standardowy rozkład dzwonków ({templates.Count} przerw)"
+                    : "Rozkład podstawowy";
+
+                daysList.Add(new CalendarDayDto(
+                    Date: curr,
+                    Weekday: weekday,
+                    DayName: dayName,
+                    DayType: dayType,
+                    StatusDescription: statusDescription,
+                    IsSchoolDay: isSchoolDay,
+                    IsMusicEnabled: dayHasAnyMusicPlaying,
+                    HasExceptions: hasExceptions,
+                    ExceptionDay: excDayDto,
+                    BellScheduleTemplate: bellTemplateName,
+                    Breaks: breaksList,
+                    SoundEvents: dayEvents
+                ));
+            }
+
+            var response = new CalendarScheduleResponseDto(
+                From: startDate,
+                To: endDate,
+                TotalDays: totalDays,
+                SchoolDaysCount: schoolDaysCount,
+                DaysOffCount: daysOffCount,
+                MusicActiveDaysCount: musicActiveDaysCount,
+                Days: daysList
+            );
+
+            return Ok(response);
         }
     }
 }
