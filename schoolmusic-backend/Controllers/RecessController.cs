@@ -64,6 +64,7 @@ public class RecessController : ControllerBase
             .ToListAsync();
 
         var defaultBreaks = await _context.Breaks
+            .Where(b => b.BreakDate == targetDate)
             .OrderBy(b => b.BreakNumber)
             .ToListAsync();
 
@@ -146,6 +147,7 @@ public class RecessController : ControllerBase
             .ToListAsync();
 
         var defaultBreaks = await _context.Breaks
+            .Where(b => b.BreakDate == today)
             .OrderBy(b => b.BreakNumber)
             .ToListAsync();
 
