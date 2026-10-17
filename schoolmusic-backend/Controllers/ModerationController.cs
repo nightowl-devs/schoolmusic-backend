@@ -48,6 +48,67 @@ namespace schoolmusic_backend.Controllers
             DateTime SubmittedAt
         );
 
+        public record BlacklistedSongItemDto(
+            int Id,
+            int SongId,
+            string Title,
+            int ArtistId,
+            string ArtistName,
+            string? Cover,
+            string? Genre,
+            int DurationMs,
+            int ModId,
+            string? ModeratorLogin
+        );
+
+        public record BlacklistPagedResponseDto(
+            int Total,
+            int Page,
+            int PageSize,
+            int TotalPages,
+            List<BlacklistedSongItemDto> Items
+        );
+
+        public record BlacklistedArtistItemDto(
+            int Id,
+            int ArtistId,
+            string ArtistName,
+            int ModeratorId,
+            string? ModeratorLogin
+        );
+
+        public record BlacklistedArtistsPagedResponseDto(
+            int Total,
+            int Page,
+            int PageSize,
+            int TotalPages,
+            List<BlacklistedArtistItemDto> Items
+        );
+
+        public record GreenlistedSongItemDto(
+            int Id,
+            int SongId,
+            string Title,
+            int ArtistId,
+            string ArtistName,
+            string? Cover,
+            string? Genre,
+            int DurationMs,
+            int ModId,
+            string? ModeratorLogin
+        );
+
+        public record GreenlistPagedResponseDto(
+            int Total,
+            int Page,
+            int PageSize,
+            int TotalPages,
+            List<GreenlistedSongItemDto> Items
+        );
+
+        public record AddSongToBlacklistDto(int? SongId, int? ArtistId);
+        public record AddSongToGreenlistDto(int SongId);
+
         private static readonly JsonSerializerOptions _jsonOptions = new()
         {
             PropertyNameCaseInsensitive = true
@@ -452,6 +513,458 @@ namespace schoolmusic_backend.Controllers
             return BadRequest(new
             {
                 Message = "Podany użytkownik nie jest zbanowany"
+            });
+        }
+
+        private async Task<Moderator?> GetOrCreateModeratorAsync(int userId)
+        {
+            var moderator = await _context.Moderators.FirstOrDefaultAsync(m => m.UserId == userId);
+            if (moderator == null)
+            {
+                moderator = new Moderator
+                {
+                    UserId = userId,
+                    SongsApproved = 0,
+                    SongsBanned = 0,
+                    ArtistsBanned = 0
+                };
+                _context.Moderators.Add(moderator);
+                await _context.SaveChangesAsync();
+            }
+            return moderator;
+        }
+
+        /// <summary>
+        /// Zwraca stronicowaną listę utworów znajdujących się na czarnej liście z opcjonalnym wyszukiwaniem po tytule lub wykonawcy.
+        /// </summary>
+        [HttpGet("blacklist")]
+        public async Task<IActionResult> GetBlacklistedSongs(
+            [FromQuery] string? search = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var query = _context.SongBlacklists
+                .Include(b => b.Song)
+                    .ThenInclude(s => s.Artist)
+                .Include(b => b.Mod)
+                    .ThenInclude(m => m.User)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var trimmed = search.Trim();
+                query = query.Where(b => b.Song.Title.Contains(trimmed) || (b.Song.Artist != null && b.Song.Artist.Name.Contains(trimmed)));
+            }
+
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 20;
+            if (pageSize > 100) pageSize = 100;
+
+            int total = await query.CountAsync();
+            int totalPages = (int)Math.Ceiling(total / (double)pageSize);
+
+            var items = await query
+                .OrderByDescending(b => b.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(b => new BlacklistedSongItemDto(
+                    b.Id,
+                    b.SongId,
+                    b.Song.Title,
+                    b.ArtistId,
+                    b.Song.Artist != null ? b.Song.Artist.Name : (b.Artist != null ? b.Artist.Name : "Nieznany wykonawca"),
+                    b.Song.Cover,
+                    b.Song.Genre,
+                    b.Song.DurationMs,
+                    b.ModId,
+                    b.Mod != null && b.Mod.User != null ? b.Mod.User.UserLogin : null
+                ))
+                .ToListAsync();
+
+            return Ok(new BlacklistPagedResponseDto(
+                Total: total,
+                Page: page,
+                PageSize: pageSize,
+                TotalPages: totalPages,
+                Items: items
+            ));
+        }
+
+        /// <summary>
+        /// Dodaje utwór lub wykonawcę do czarnej listy. W przypadku dodania utworu, jest on automatycznie usuwany z zielonej listy.
+        /// </summary>
+        [HttpPost("blacklist")]
+        public async Task<IActionResult> AddToBlacklist([FromBody] AddSongToBlacklistDto dto)
+        {
+            var modUserId = HttpContext.GetCurrentUserId();
+            if (modUserId == null)
+            {
+                return Unauthorized(new { Message = "Brak autoryzacji moderatora." });
+            }
+
+            var moderator = await GetOrCreateModeratorAsync(modUserId.Value);
+            if (moderator == null)
+            {
+                return Unauthorized(new { Message = "Nie znaleziono profilu moderatora." });
+            }
+
+            if (dto.SongId.HasValue)
+            {
+                int songId = dto.SongId.Value;
+                var song = await _context.Songs.Include(s => s.Artist).FirstOrDefaultAsync(s => s.Id == songId);
+                if (song == null)
+                {
+                    return NotFound(new { Message = "Utwór o podanym ID nie istnieje." });
+                }
+
+                bool alreadyBlacklisted = await _context.SongBlacklists.AnyAsync(b => b.SongId == song.Id);
+                if (alreadyBlacklisted)
+                {
+                    return Conflict(new { Message = "Ten utwór znajduje się już na czarnej liście." });
+                }
+
+                var greenlistEntry = await _context.SongGreenlists.FirstOrDefaultAsync(g => g.SongId == song.Id);
+                if (greenlistEntry != null)
+                {
+                    _context.SongGreenlists.Remove(greenlistEntry);
+                }
+
+                var blacklistEntry = new SongBlacklist
+                {
+                    SongId = song.Id,
+                    ArtistId = song.ArtistId,
+                    ModId = moderator.Id
+                };
+                _context.SongBlacklists.Add(blacklistEntry);
+                moderator.SongsBanned += 1;
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    Message = $"Pomyślnie dodano utwór '{song.Title}' do czarnej listy.",
+                    BlacklistId = blacklistEntry.Id,
+                    SongId = song.Id,
+                    RemovedFromGreenlist = greenlistEntry != null
+                });
+            }
+
+            if (dto.ArtistId.HasValue)
+            {
+                int artistId = dto.ArtistId.Value;
+                var artist = await _context.Artists.FindAsync(artistId);
+                if (artist == null)
+                {
+                    return NotFound(new { Message = "Wykonawca o podanym ID nie istnieje." });
+                }
+
+                bool alreadyBlacklisted = await _context.ArtistBlacklists.AnyAsync(a => a.ArtistId == artistId);
+                if (alreadyBlacklisted)
+                {
+                    return Conflict(new { Message = "Ten wykonawca znajduje się już na czarnej liście." });
+                }
+
+                var artistEntry = new ArtistBlacklist
+                {
+                    ArtistId = artistId,
+                    ModeratorId = moderator.Id
+                };
+                _context.ArtistBlacklists.Add(artistEntry);
+                moderator.ArtistsBanned += 1;
+                await _context.SaveChangesAsync();
+
+                return Ok(new
+                {
+                    Message = $"Pomyślnie dodano wykonawcę '{artist.Name}' do czarnej listy.",
+                    BlacklistId = artistEntry.Id,
+                    ArtistId = artistId
+                });
+            }
+
+            return BadRequest(new { Message = "Musisz podać SongId lub ArtistId." });
+        }
+
+        /// <summary>
+        /// Usuwa utwór z czarnej listy po identyfikatorze wpisu lub identyfikatorze utworu.
+        /// </summary>
+        [HttpDelete("blacklist/{id:int}")]
+        public async Task<IActionResult> RemoveFromBlacklist(int id)
+        {
+            var entry = await _context.SongBlacklists
+                .Include(b => b.Song)
+                .FirstOrDefaultAsync(b => b.Id == id || b.SongId == id);
+
+            if (entry == null)
+            {
+                return NotFound(new { Message = "Wpis na czarnej liście o podanym identyfikatorze nie został znaleziony." });
+            }
+
+            _context.SongBlacklists.Remove(entry);
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Message = $"Pomyślnie usunięto utwór '{entry.Song?.Title ?? id.ToString()}' z czarnej listy.",
+                BlacklistId = entry.Id,
+                SongId = entry.SongId
+            });
+        }
+
+        /// <summary>
+        /// Zwraca stronicowaną listę zablokowanych wykonawców (ArtistBlacklist).
+        /// </summary>
+        [HttpGet("blacklist/artists")]
+        public async Task<IActionResult> GetBlacklistedArtists(
+            [FromQuery] string? search = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var query = _context.ArtistBlacklists
+                .Include(a => a.Artist)
+                .Include(a => a.Moderator)
+                    .ThenInclude(m => m.User)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var trimmed = search.Trim();
+                query = query.Where(a => a.Artist.Name.Contains(trimmed));
+            }
+
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 20;
+            if (pageSize > 100) pageSize = 100;
+
+            int total = await query.CountAsync();
+            int totalPages = (int)Math.Ceiling(total / (double)pageSize);
+
+            var items = await query
+                .OrderByDescending(a => a.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(a => new BlacklistedArtistItemDto(
+                    a.Id,
+                    a.ArtistId,
+                    a.Artist.Name,
+                    a.ModeratorId,
+                    a.Moderator != null && a.Moderator.User != null ? a.Moderator.User.UserLogin : null
+                ))
+                .ToListAsync();
+
+            return Ok(new BlacklistedArtistsPagedResponseDto(
+                Total: total,
+                Page: page,
+                PageSize: pageSize,
+                TotalPages: totalPages,
+                Items: items
+            ));
+        }
+
+        /// <summary>
+        /// Dodaje wykonawcę o podanym ID do czarnej listy wykonawców.
+        /// </summary>
+        [HttpPost("blacklist/artist/{artistId:int}")]
+        public async Task<IActionResult> AddArtistToBlacklist(int artistId)
+        {
+            var modUserId = HttpContext.GetCurrentUserId();
+            if (modUserId == null)
+            {
+                return Unauthorized(new { Message = "Brak autoryzacji moderatora." });
+            }
+
+            var artist = await _context.Artists.FindAsync(artistId);
+            if (artist == null)
+            {
+                return NotFound(new { Message = "Wykonawca o podanym ID nie istnieje." });
+            }
+
+            bool already = await _context.ArtistBlacklists.AnyAsync(a => a.ArtistId == artistId);
+            if (already)
+            {
+                return Conflict(new { Message = "Ten wykonawca znajduje się już na czarnej liście." });
+            }
+
+            var moderator = await GetOrCreateModeratorAsync(modUserId.Value);
+            if (moderator == null)
+            {
+                return Unauthorized(new { Message = "Nie znaleziono profilu moderatora." });
+            }
+
+            var entry = new ArtistBlacklist
+            {
+                ArtistId = artistId,
+                ModeratorId = moderator.Id
+            };
+            _context.ArtistBlacklists.Add(entry);
+            moderator.ArtistsBanned += 1;
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Message = $"Pomyślnie dodano wykonawcę '{artist.Name}' do czarnej listy.",
+                BlacklistId = entry.Id,
+                ArtistId = artistId
+            });
+        }
+
+        /// <summary>
+        /// Usuwa wykonawcę z czarnej listy po identyfikatorze wykonawcy lub identyfikatorze wpisu.
+        /// </summary>
+        [HttpDelete("blacklist/artist/{artistId:int}")]
+        public async Task<IActionResult> RemoveArtistFromBlacklist(int artistId)
+        {
+            var entry = await _context.ArtistBlacklists
+                .Include(a => a.Artist)
+                .FirstOrDefaultAsync(a => a.ArtistId == artistId || a.Id == artistId);
+
+            if (entry == null)
+            {
+                return NotFound(new { Message = "Wykonawca o podanym ID nie znajduje się na czarnej liście." });
+            }
+
+            _context.ArtistBlacklists.Remove(entry);
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Message = $"Pomyślnie usunięto wykonawcę '{entry.Artist?.Name ?? artistId.ToString()}' z czarnej listy.",
+                BlacklistId = entry.Id,
+                ArtistId = entry.ArtistId
+            });
+        }
+
+        /// <summary>
+        /// Zwraca stronicowaną listę utworów zatwierdzonych (zielona lista) z opcjonalnym wyszukiwaniem po tytule lub wykonawcy.
+        /// </summary>
+        [HttpGet("greenlist")]
+        public async Task<IActionResult> GetGreenlistedSongs(
+            [FromQuery] string? search = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            var query = _context.SongGreenlists
+                .Include(g => g.Song)
+                    .ThenInclude(s => s.Artist)
+                .Include(g => g.Mod)
+                    .ThenInclude(m => m.User)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var trimmed = search.Trim();
+                query = query.Where(g => g.Song.Title.Contains(trimmed) || (g.Song.Artist != null && g.Song.Artist.Name.Contains(trimmed)));
+            }
+
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 20;
+            if (pageSize > 100) pageSize = 100;
+
+            int total = await query.CountAsync();
+            int totalPages = (int)Math.Ceiling(total / (double)pageSize);
+
+            var items = await query
+                .OrderByDescending(g => g.Id)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(g => new GreenlistedSongItemDto(
+                    g.Id,
+                    g.SongId,
+                    g.Song.Title,
+                    g.ArtistId,
+                    g.Song.Artist != null ? g.Song.Artist.Name : (g.Artist != null ? g.Artist.Name : "Nieznany wykonawca"),
+                    g.Song.Cover,
+                    g.Song.Genre,
+                    g.Song.DurationMs,
+                    g.ModId,
+                    g.Mod != null && g.Mod.User != null ? g.Mod.User.UserLogin : null
+                ))
+                .ToListAsync();
+
+            return Ok(new GreenlistPagedResponseDto(
+                Total: total,
+                Page: page,
+                PageSize: pageSize,
+                TotalPages: totalPages,
+                Items: items
+            ));
+        }
+
+        /// <summary>
+        /// Bezpośrednio dodaje utwór do zielonej listy (wstępne zatwierdzenie przez moderatora/administratora).
+        /// </summary>
+        [HttpPost("greenlist")]
+        public async Task<IActionResult> AddSongToGreenlist([FromBody] AddSongToGreenlistDto dto)
+        {
+            var modUserId = HttpContext.GetCurrentUserId();
+            if (modUserId == null)
+            {
+                return Unauthorized(new { Message = "Brak autoryzacji moderatora." });
+            }
+
+            var song = await _context.Songs.Include(s => s.Artist).FirstOrDefaultAsync(s => s.Id == dto.SongId);
+            if (song == null)
+            {
+                return NotFound(new { Message = "Utwór o podanym ID nie istnieje." });
+            }
+
+            bool isBlacklisted = await _context.SongBlacklists.AnyAsync(b => b.SongId == song.Id);
+            if (isBlacklisted)
+            {
+                return BadRequest(new { Message = "Nie można dodać utworu do zielonej listy, ponieważ znajduje się na czarnej liście." });
+            }
+
+            bool alreadyGreenlisted = await _context.SongGreenlists.AnyAsync(g => g.SongId == song.Id);
+            if (alreadyGreenlisted)
+            {
+                return Conflict(new { Message = "Ten utwór znajduje się już na zielonej liście." });
+            }
+
+            var moderator = await GetOrCreateModeratorAsync(modUserId.Value);
+            if (moderator == null)
+            {
+                return Unauthorized(new { Message = "Nie znaleziono profilu moderatora." });
+            }
+
+            var entry = new SongGreenlist
+            {
+                SongId = song.Id,
+                ArtistId = song.ArtistId,
+                ModId = moderator.Id
+            };
+            _context.SongGreenlists.Add(entry);
+            moderator.SongsApproved += 1;
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Message = $"Pomyślnie dodano utwór '{song.Title}' do zielonej listy.",
+                GreenlistId = entry.Id,
+                SongId = song.Id
+            });
+        }
+
+        /// <summary>
+        /// Usuwa utwór z zielonej listy po identyfikatorze utworu lub identyfikatorze wpisu.
+        /// </summary>
+        [HttpDelete("greenlist/{songId:int}")]
+        public async Task<IActionResult> RemoveFromGreenlist(int songId)
+        {
+            var entry = await _context.SongGreenlists
+                .Include(g => g.Song)
+                .FirstOrDefaultAsync(g => g.SongId == songId || g.Id == songId);
+
+            if (entry == null)
+            {
+                return NotFound(new { Message = "Utwór o podanym identyfikatorze nie znajduje się na zielonej liście." });
+            }
+
+            _context.SongGreenlists.Remove(entry);
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                Message = $"Pomyślnie usunięto utwór '{entry.Song?.Title ?? songId.ToString()}' z zielonej listy.",
+                GreenlistId = entry.Id,
+                SongId = entry.SongId
             });
         }
     }
