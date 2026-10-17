@@ -61,15 +61,46 @@ public class TracksController : ControllerBase
     private readonly schoolmusicContext _context;
     private readonly IBreakService _breakService;
     private readonly IAudioPlayerService _audioPlayerService;
+    private readonly ISongSourceService _songSourceService;
 
     public TracksController(
-        schoolmusicContext context, 
+        schoolmusicContext context,
         IBreakService breakService,
-        IAudioPlayerService audioPlayerService)
+        IAudioPlayerService audioPlayerService,
+        ISongSourceService songSourceService)
     {
         _context = context;
         _breakService = breakService;
         _audioPlayerService = audioPlayerService;
+        _songSourceService = songSourceService;
+    }
+
+    [HttpGet("search")]
+    [AllowAnonymous]
+    public async Task<IActionResult> SearchTracks([FromQuery] string? q)
+    {
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return BadRequest(new { Message = "Parametr q jest wymagany." });
+        }
+
+        if (!_songSourceService.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                Message = "Wyszukiwanie Spotify jest niedostępne. Skonfiguruj Spotify:ClientId i Spotify:ClientSecret."
+            });
+        }
+
+        var tracks = await _songSourceService.SearchTracksAsync(q.Trim());
+        return Ok(tracks.Select(track => new
+        {
+            title = track.Title,
+            artist = track.ArtistName,
+            cover = track.CoverUrl,
+            durationMs = track.DurationMs,
+            externalId = track.ExternalId
+        }));
     }
 
     /// <summary>
@@ -390,25 +421,15 @@ public class TracksController : ControllerBase
 
         var user = await _context.Users.Include(u => u.Songs)
             .FirstOrDefaultAsync(u => u.Id == currentUserId);
-        var song = await _context.Songs.FindAsync(id);
-
-        if (song == null)
-        {
-            /// TODO ! tutaj trzeba zrobić podłączenie do spotify web api a później dodać do bazy danych
-            // await Songs.Add(song);
-            // await _context.SaveChangesAsync();
-            // na razie NotFound
-            return NotFound(new
-            {
-                Message = "Nie znaleziono piosenki (dołącz SPotify API póxniej"
-            });
-        }
         if (user == null)
         {
-            return NotFound(new
-            {
-                Message = "Użytkownik nie znaleziony"
-            });
+            return NotFound(new { Message = "Użytkownik nie znaleziony" });
+        }
+
+        var song = await _context.Songs.FindAsync(id);
+        if (song == null)
+        {
+            return NotFound(new { Message = "Nie znaleziono piosenki." });
         }
 
 
@@ -450,9 +471,6 @@ public class TracksController : ControllerBase
         var user = await _context.Users.Include(u => u.Songs)
             .FirstOrDefaultAsync(u => u.Id == currentUserId);
 
-        var song = await _context.Songs
-            .FirstOrDefaultAsync(s => s.SpotifyId == spotifyId);
-
         if (user == null)
         {
             return NotFound(new
@@ -460,12 +478,24 @@ public class TracksController : ControllerBase
                 Message = "Nie znaleziono użytkownika o podanym ID"
             });
         }
+
+        var song = await _context.Songs
+            .FirstOrDefaultAsync(candidate => candidate.SpotifyId == spotifyId);
         if (song == null)
         {
-            return NotFound(new
+            if (!_songSourceService.IsConfigured)
             {
-                Message = "Nie znaleziono piosenki o tym ID"
-            });
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+                {
+                    Message = "Dodawanie utworów Spotify jest niedostępne. Skonfiguruj Spotify:ClientId i Spotify:ClientSecret."
+                });
+            }
+
+            song = await SpotifyTrackImporter.GetOrImportAsync(_context, _songSourceService, spotifyId);
+            if (song == null)
+            {
+                return NotFound(new { Message = "Nie znaleziono utworu o podanym Spotify ID." });
+            }
         }
         if (!user.Songs.Contains(song))
         {
