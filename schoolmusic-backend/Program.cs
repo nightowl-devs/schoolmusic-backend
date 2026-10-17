@@ -81,6 +81,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<BreakSchedulerServ
 builder.Services.AddSingleton<ISongSourceService, SpotifySongSource>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<ISystemStatusService, SystemStatusService>();
+builder.Services.AddScoped<IStatisticsService, StatisticsService>();
 
 var app = builder.Build();
 
